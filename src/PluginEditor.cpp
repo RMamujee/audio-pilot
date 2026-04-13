@@ -3,7 +3,7 @@
 // Default backend: HF Space URL. Falls back gracefully if unreachable.
 // Users can override this in the plugin's Settings panel.
 static const juce::String DEFAULT_BACKEND_URL =
-    "https://rmamujee-serum-dupe.hf.space";
+    "https://mclovin6969-serum-dupe.hf.space";
 
 static void setupSlider(juce::Slider& s, juce::Label& l,
                          juce::Component* parent, const juce::String& name) {

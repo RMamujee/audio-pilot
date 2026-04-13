@@ -3,6 +3,7 @@ import { matchPresets } from "@/lib/matcher";
 
 export const runtime = "nodejs";
 
+// Default HF Space: https://mclovin6969-serum-dupe.hf.space
 // If HF_SPACE_URL is set (Vercel env var), proxy to the HF Space for real ML embeddings.
 // Otherwise fall back to the local keyword matcher (always works, no external deps).
 const HF_SPACE_URL = process.env.HF_SPACE_URL?.replace(/\/$/, "");
