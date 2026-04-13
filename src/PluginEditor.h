@@ -14,15 +14,24 @@ public:
 private:
     void timerCallback() override {}
     void sendPrompt();
-    void handleBackendResponse(const juce::String& json);
+    void handleBackendResponse(const juce::String& jsonStr);
+    juce::String getBackendUrl() const;
 
     SerumDupeProcessor& processor;
 
-    // --- UI Controls ---
+    // --- AI prompt area ---
     juce::TextEditor    promptBox;
-    juce::TextButton    generateBtn   { "Generate" };
+    juce::TextEditor    artistBox;
+    juce::TextButton    generateBtn    { "Generate" };
     juce::Label         statusLabel;
 
+    // --- Backend URL (editable, persisted in plugin state) ---
+    juce::TextEditor    backendUrlBox;
+    juce::Label         backendUrlLabel { {}, "Backend URL" };
+    juce::TextButton    urlToggleBtn   { "Settings" };
+    bool                showSettings   { false };
+
+    // --- Synth knobs ---
     juce::Slider        cutoffSlider, resonanceSlider;
     juce::Slider        attackSlider, decaySlider, sustainSlider, releaseSlider;
     juce::Slider        reverbSizeSlider, reverbWetSlider;
@@ -38,7 +47,6 @@ private:
     juce::Label         reverbWtLabel  { {}, "Verb Wet" };
     juce::Label         oscLabel       { {}, "Oscillator" };
 
-    // APVTS attachments
     using SliderAtt = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ComboAtt  = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
 
