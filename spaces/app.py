@@ -1,5 +1,5 @@
 """
-Serum Dupe — AI Backend
+AudioPilot — AI Backend
 Hosted on Hugging Face Spaces (Docker).
 Exposes POST /generate and GET /health on port 7860.
 
@@ -11,12 +11,14 @@ from __future__ import annotations
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 import numpy as np
 import uvicorn
 
-app = FastAPI(title="Serum Dupe AI", version="0.2.0")
+app = FastAPI(title="AudioPilot AI", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -170,6 +172,11 @@ def generate(req: PromptRequest) -> dict:
         })
 
     return {"results": results}
+
+
+@app.get("/")
+def root() -> FileResponse:
+    return FileResponse("static/index.html")
 
 
 @app.get("/health")

@@ -362,10 +362,10 @@ export default function Home() {
             AI SOUND FINDER
           </div>
           <h1 style={{ fontSize: "clamp(32px,6vw,56px)", fontWeight: 800, background: "linear-gradient(135deg,#fff 0%,var(--accent2) 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", letterSpacing: "-1px", marginBottom: 12, lineHeight: 1.1 }}>
-            SERUM DUPE
+            AUDIOPILOT
           </h1>
           <p style={{ color: "var(--muted)", fontSize: 16, maxWidth: 480, margin: "0 auto" }}>
-            Find synth sounds that match any artist&apos;s signature style.<br />
+            Find synth sounds that match any artist&apos;s signature style — powered by AI.<br />
             Type a vibe, name an artist, preview and copy parameters.
           </p>
         </header>

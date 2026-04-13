@@ -1,5 +1,5 @@
 ---
-title: Serum Dupe AI Backend
+title: AudioPilot AI Backend
 emoji: 🎛️
 colorFrom: purple
 colorTo: blue
@@ -8,7 +8,7 @@ pinned: false
 app_port: 7860
 ---
 
-# Serum Dupe — AI Backend
+# AudioPilot — AI Backend
 
 FastAPI backend for the Serum Dupe VST3 plugin and web app.
 

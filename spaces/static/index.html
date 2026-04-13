@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AudioPilot — AI Sound Finder</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d0d14; --surface: #13131f; --surface2: #1a1a2e; --border: #2a2a45;
+    --accent: #7c3aed; --accent2: #a855f7; --text: #e8e8f0; --muted: #6b6b8a;
+    --green: #22c55e; --yellow: #eab308; --red: #ef4444;
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter','Segoe UI',system-ui,sans-serif; min-height:100vh; line-height:1.5; }
+  .wrap { max-width:900px; margin:0 auto; padding:0 16px 80px; }
+  header { padding:48px 0 36px; text-align:center; }
+  .badge { display:inline-flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:4px 14px; margin-bottom:20px; font-size:11px; color:var(--muted); letter-spacing:.1em; }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--green); box-shadow:0 0 6px var(--green); display:inline-block; }
+  h1 { font-size:clamp(36px,7vw,64px); font-weight:900; background:linear-gradient(135deg,#fff 0%,var(--accent2) 100%); -webkit-background-clip:text; -webkit-text-fill-color:transparent; letter-spacing:-2px; margin-bottom:14px; line-height:1; }
+  .subtitle { color:var(--muted); font-size:16px; max-width:460px; margin:0 auto; }
+  .panel { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:24px; margin-bottom:24px; }
+  .inputs { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; }
+  .field label { display:block; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:6px; }
+  .field input { width:100%; padding:11px 14px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:14px; font-family:inherit; outline:none; transition:border-color .2s; }
+  .field input:focus { border-color:var(--accent); }
+  .field input::placeholder { color:var(--muted); }
+  .btn-generate { width:100%; padding:13px; background:linear-gradient(135deg,var(--accent),var(--accent2)); border:none; border-radius:8px; color:#fff; font-size:14px; font-weight:700; letter-spacing:.06em; cursor:pointer; font-family:inherit; transition:opacity .2s; }
+  .btn-generate:disabled { opacity:.5; cursor:not-allowed; background:var(--surface2); }
+  .status { margin-top:10px; font-size:13px; min-height:20px; text-align:center; }
+  .status.ok { color:var(--green); } .status.err { color:var(--red); } .status.loading { color:var(--yellow); animation:pulse 1s infinite; }
+  .suggestions { margin-bottom:32px; }
+  .suggestions-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:10px; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { padding:6px 13px; border-radius:20px; background:var(--surface); border:1px solid var(--border); color:var(--muted); font-size:12px; cursor:pointer; transition:all .2s; font-family:inherit; }
+  .chip:hover { border-color:var(--accent); color:var(--text); }
+  .results-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-bottom:14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(380px,1fr)); gap:14px; }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:20px; position:relative; overflow:hidden; animation:fadeUp .35s ease both; }
+  .card-top { position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg,var(--accent),var(--accent2),transparent); }
+  .card-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }
+  .card-left { flex:1; }
+  .card-title-row { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+  .osc-dot { width:8px; height:8px; border-radius:50%; display:inline-block; flex-shrink:0; }
+  .card-name { font-size:15px; font-weight:700; }
+  .card-desc { font-size:12px; color:var(--muted); margin-bottom:8px; }
+  .card-conf-row { display:flex; align-items:center; gap:6px; }
+  .confidence { font-size:12px; font-weight:600; }
+  .artist-badge { font-size:10px; padding:2px 7px; border-radius:4px; background:rgba(124,58,237,.2); color:var(--accent2); font-weight:700; }
+  .card-meta { display:flex; flex-direction:column; align-items:flex-end; gap:6px; margin-left:12px; }
+  .osc-label { font-size:11px; padding:3px 8px; border-radius:6px; background:var(--surface2); border:1px solid var(--border); font-family:monospace; font-weight:700; text-transform:uppercase; }
+  .copy-btn { font-size:11px; padding:3px 8px; border-radius:6px; background:var(--surface2); border:1px solid var(--border); color:var(--muted); cursor:pointer; font-family:inherit; transition:all .2s; white-space:nowrap; }
+  .copy-btn.copied { border-color:var(--green); color:var(--green); background:rgba(34,197,94,.1); }
+  .artists { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:14px; }
+  .artist-pill { font-size:10px; padding:2px 8px; border-radius:10px; background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
+  .params { display:grid; grid-template-columns:1fr 1fr; gap:0 20px; }
+  .param { margin-bottom:8px; }
+  .param-row { display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-bottom:3px; }
+  .param-val { color:var(--text); }
+  .bar-bg { height:4px; background:var(--border); border-radius:2px; overflow:hidden; }
+  .bar-fill { height:100%; border-radius:2px; background:linear-gradient(90deg,var(--accent),var(--accent2)); }
+  .matched-tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:12px; }
+  .tag { font-size:10px; padding:2px 7px; border-radius:4px; background:rgba(124,58,237,.12); color:var(--accent2); border:1px solid rgba(124,58,237,.25); }
+  footer { margin-top:60px; text-align:center; color:var(--muted); font-size:12px; }
+  footer a { color:var(--accent2); text-decoration:none; }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  @media(max-width:600px){ .inputs{grid-template-columns:1fr} .grid{grid-template-columns:1fr} .params{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="badge"><span class="dot"></span> AI SOUND FINDER</div>
+    <h1>AUDIOPILOT</h1>
+    <p class="subtitle">Find synth sounds that match any artist's signature style.<br>Type a vibe, name an artist, get parameters.</p>
+  </header>
+
+  <div class="panel">
+    <div class="inputs">
+      <div class="field">
+        <label>Sound / Vibe</label>
+        <input id="prompt" type="text" placeholder="dark ambient pad, 808 bass, acid pluck..." />
+      </div>
+      <div class="field">
+        <label>Artist (optional)</label>
+        <input id="artist" type="text" placeholder="Travis Scott, Burial, Aphex Twin..." />
+      </div>
+    </div>
+    <button class="btn-generate" id="genBtn" onclick="runSearch()">FIND SOUNDS</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="suggestions" id="suggestions">
+    <div class="suggestions-label">Try these</div>
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <div class="results-label" id="resultsLabel" style="display:none"></div>
+  <div class="grid" id="grid"></div>
+
+  <footer>
+    AudioPilot · JUCE + sentence-transformers + FastAPI ·
+    <a href="https://github.com/RMamujee/serum-dupe" target="_blank">GitHub</a>
+  </footer>
+</div>
+
+<script>
+const OSC_COLORS = { sine:"#22c55e", saw:"#a855f7", square:"#f59e0b" };
+const PARAMS = [
+  {key:"cutoff",     label:"Cutoff",    min:20,  max:20000, unit:"Hz"},
+  {key:"resonance",  label:"Resonance", min:0.1, max:10},
+  {key:"attack",     label:"Attack",    min:0,   max:5,  unit:"s"},
+  {key:"decay",      label:"Decay",     min:0,   max:5,  unit:"s"},
+  {key:"sustain",    label:"Sustain",   min:0,   max:1},
+  {key:"release",    label:"Release",   min:0,   max:8,  unit:"s"},
+  {key:"reverb_wet", label:"Reverb",    min:0,   max:1},
+  {key:"drive",      label:"Drive",     min:0,   max:1},
+  {key:"chorus",     label:"Chorus",    min:0,   max:1},
+  {key:"delay_mix",  label:"Delay",     min:0,   max:1},
+];
+const SUGGESTIONS = [
+  {prompt:"dark ambient pad",       artist:"Travis Scott"},
+  {prompt:"808 sub bass heavy",     artist:"Metro Boomin"},
+  {prompt:"ethereal choir shimmer", artist:"Frank Ocean"},
+  {prompt:"acid pluck electronic",  artist:"Aphex Twin"},
+  {prompt:"warm lofi chill",        artist:"J Dilla"},
+  {prompt:"aggressive distorted",   artist:"Skrillex"},
+];
+
+// Build suggestion chips
+const chipsEl = document.getElementById("chips");
+SUGGESTIONS.forEach(s => {
+  const btn = document.createElement("button");
+  btn.className = "chip";
+  btn.textContent = s.artist + " — " + s.prompt;
+  btn.addEventListener("click", () => {
+    document.getElementById("prompt").value = s.prompt;
+    document.getElementById("artist").value = s.artist;
+  });
+  chipsEl.appendChild(btn);
+});
+
+// Enter key on inputs
+["prompt","artist"].forEach(id => {
+  document.getElementById(id).addEventListener("keydown", e => { if(e.key==="Enter") runSearch(); });
+});
+
+function setStatus(msg, cls) {
+  const el = document.getElementById("status");
+  el.textContent = msg;
+  el.className = "status " + (cls||"");
+}
+
+function fmtVal(v, unit) {
+  if(unit==="Hz") return v>=1000 ? (v/1000).toFixed(1)+"kHz" : Math.round(v)+"Hz";
+  if(unit==="s")  return v.toFixed(2)+"s";
+  return v.toFixed(2);
+}
+
+async function runSearch() {
+  const prompt = document.getElementById("prompt").value.trim();
+  const artist = document.getElementById("artist").value.trim();
+  if(!prompt && !artist) return;
+
+  const btn = document.getElementById("genBtn");
+  btn.disabled = true;
+  setStatus("Finding sounds...", "loading");
+  document.getElementById("grid").textContent = "";
+  document.getElementById("resultsLabel").style.display = "none";
+  document.getElementById("suggestions").style.display = "none";
+
+  try {
+    const res = await fetch("/generate", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({prompt, artist, top_k:4}),
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || "Error from server");
+    renderResults(data.results);
+    setStatus("","");
+  } catch(e) {
+    setStatus(e.message, "err");
+    document.getElementById("suggestions").style.display = "";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderResults(results) {
+  const grid  = document.getElementById("grid");
+  const label = document.getElementById("resultsLabel");
+  label.textContent = results.length + " sounds found";
+  label.style.display = "";
+  grid.textContent = "";
+
+  results.forEach((r, i) => {
+    const oscColor = OSC_COLORS[r.params.osc_type] || "#888";
+    const conf     = Math.min(r.confidence, 1);
+    const confPct  = Math.round(conf * 100);
+    const confColor= confPct>70 ? "var(--green)" : confPct>40 ? "var(--accent2)" : "var(--muted)";
+
+    const card = document.createElement("div");
+    card.className = "card";
+    card.style.animationDelay = (i*0.07) + "s";
+
+    // Top accent bar
+    const bar = document.createElement("div");
+    bar.className = "card-top";
+    card.appendChild(bar);
+
+    // Header row
+    const header = document.createElement("div");
+    header.className = "card-header";
+
+    // Left side
+    const left = document.createElement("div");
+    left.className = "card-left";
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "card-title-row";
+    const oscDot = document.createElement("span");
+    oscDot.className = "osc-dot";
+    oscDot.style.background = oscColor;
+    oscDot.style.boxShadow = "0 0 6px " + oscColor;
+    const nameEl = document.createElement("span");
+    nameEl.className = "card-name";
+    nameEl.textContent = r.name;
+    titleRow.appendChild(oscDot);
+    titleRow.appendChild(nameEl);
+    left.appendChild(titleRow);
+
+    const desc = document.createElement("div");
+    desc.className = "card-desc";
+    desc.textContent = r.description || r.matched_query || "";
+    left.appendChild(desc);
+
+    const confRow = document.createElement("div");
+    confRow.className = "card-conf-row";
+    const confEl = document.createElement("span");
+    confEl.className = "confidence";
+    confEl.style.color = confColor;
+    confEl.textContent = confPct + "% match";
+    confRow.appendChild(confEl);
+    if(r.matchedArtist) {
+      const badge = document.createElement("span");
+      badge.className = "artist-badge";
+      badge.textContent = "ARTIST";
+      confRow.appendChild(badge);
+    }
+    left.appendChild(confRow);
+    header.appendChild(left);
+
+    // Right side (osc label + copy btn)
+    const meta = document.createElement("div");
+    meta.className = "card-meta";
+    const oscLabel = document.createElement("span");
+    oscLabel.className = "osc-label";
+    oscLabel.style.color = oscColor;
+    oscLabel.textContent = r.params.osc_type;
+    meta.appendChild(oscLabel);
+
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "copy-btn";
+    copyBtn.textContent = "Copy params";
+    copyBtn.addEventListener("click", () => {
+      const text = JSON.stringify(r.params, null, 2);
+      navigator.clipboard.writeText(text).then(() => {
+        copyBtn.textContent = "✓ Copied";
+        copyBtn.classList.add("copied");
+        setTimeout(() => { copyBtn.textContent = "Copy params"; copyBtn.classList.remove("copied"); }, 2000);
+      });
+    });
+    meta.appendChild(copyBtn);
+    header.appendChild(meta);
+    card.appendChild(header);
+
+    // Artist pills
+    const artistsEl = document.createElement("div");
+    artistsEl.className = "artists";
+    (r.artists || []).slice(0,4).forEach(a => {
+      const pill = document.createElement("span");
+      pill.className = "artist-pill";
+      pill.textContent = a;
+      artistsEl.appendChild(pill);
+    });
+    card.appendChild(artistsEl);
+
+    // Param bars
+    const paramsGrid = document.createElement("div");
+    paramsGrid.className = "params";
+    PARAMS.forEach(p => {
+      const val = r.params[p.key] ?? 0;
+      const pct = Math.min(((val - p.min) / (p.max - p.min)) * 100, 100);
+      const param = document.createElement("div");
+      param.className = "param";
+      const row = document.createElement("div");
+      row.className = "param-row";
+      const lbl = document.createElement("span");
+      lbl.textContent = p.label;
+      const valEl = document.createElement("span");
+      valEl.className = "param-val";
+      valEl.textContent = fmtVal(val, p.unit);
+      row.appendChild(lbl);
+      row.appendChild(valEl);
+      const barBg = document.createElement("div");
+      barBg.className = "bar-bg";
+      const fill = document.createElement("div");
+      fill.className = "bar-fill";
+      fill.style.width = pct + "%";
+      barBg.appendChild(fill);
+      param.appendChild(row);
+      param.appendChild(barBg);
+      paramsGrid.appendChild(param);
+    });
+    card.appendChild(paramsGrid);
+
+    // Matched tags
+    const tags = r.matchedTags || [];
+    if(tags.length) {
+      const tagsEl = document.createElement("div");
+      tagsEl.className = "matched-tags";
+      tags.forEach(t => {
+        const tag = document.createElement("span");
+        tag.className = "tag";
+        tag.textContent = t;
+        tagsEl.appendChild(tag);
+      });
+      card.appendChild(tagsEl);
+    }
+
+    grid.appendChild(card);
+  });
+}
+</script>
+</body>
+</html>
