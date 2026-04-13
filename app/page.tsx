@@ -359,7 +359,7 @@ export default function Home() {
         <header style={{ padding: "40px 0 32px", textAlign: "center" }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 10, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "4px 12px", marginBottom: 20, fontSize: 12, color: "var(--muted)" }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)", display: "inline-block", boxShadow: "0 0 6px var(--green)" }} />
-            AI SOUND FINDER
+            AI SOUND FINDER &nbsp;·&nbsp; <a href="/synth" style={{color:"var(--accent2)"}}>▶ Open Synth</a>
           </div>
           <h1 style={{ fontSize: "clamp(32px,6vw,56px)", fontWeight: 800, background: "linear-gradient(135deg,#fff 0%,var(--accent2) 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", letterSpacing: "-1px", marginBottom: 12, lineHeight: 1.1 }}>
             AUDIOPILOT
