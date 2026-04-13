@@ -3,10 +3,35 @@ import { matchPresets } from "@/lib/matcher";
 
 export const runtime = "nodejs";
 
-// Default HF Space: https://mclovin6969-serum-dupe.hf.space
-// If HF_SPACE_URL is set (Vercel env var), proxy to the HF Space for real ML embeddings.
-// Otherwise fall back to the local keyword matcher (always works, no external deps).
 const HF_SPACE_URL = process.env.HF_SPACE_URL?.replace(/\/$/, "");
+
+// HF Space returns snake_case params — normalize to camelCase for the frontend
+function normalizeHFResult(r: Record<string, unknown>) {
+  const p = (r.params ?? {}) as Record<string, unknown>;
+  return {
+    name:         r.name ?? "",
+    description:  r.description ?? r.matched_query ?? "",
+    artists:      Array.isArray(r.artists) ? r.artists : [],
+    tags:         Array.isArray(r.tags) ? r.tags : [],
+    confidence:   Math.min(Number(r.confidence ?? 0), 1.0),
+    matchedArtist: Boolean(r.matchedArtist),
+    matchedTags:  Array.isArray(r.matchedTags) ? r.matchedTags : [],
+    params: {
+      cutoff:      Number(p.cutoff      ?? 8000),
+      resonance:   Number(p.resonance   ?? 0.7),
+      attack:      Number(p.attack      ?? 0.01),
+      decay:       Number(p.decay       ?? 0.3),
+      sustain:     Number(p.sustain     ?? 0.7),
+      release:     Number(p.release     ?? 0.5),
+      reverbSize:  Number(p.reverb_size ?? p.reverbSize ?? 0.3),
+      reverbWet:   Number(p.reverb_wet  ?? p.reverbWet  ?? 0.1),
+      oscType:     String(p.osc_type    ?? p.oscType    ?? "saw"),
+      drive:       Number(p.drive       ?? 0),
+      chorus:      Number(p.chorus      ?? 0),
+      delayMix:    Number(p.delay_mix   ?? p.delayMix   ?? 0),
+    },
+  };
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,25 +46,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // --- Path A: proxy to HF Space (real sentence-transformers) ---
+    // Path A: HF Space (real sentence-transformers embeddings)
     if (HF_SPACE_URL) {
-      const upstream = await fetch(`${HF_SPACE_URL}/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, artist, top_k: 4 }),
-        signal: AbortSignal.timeout(15_000),
-      });
+      try {
+        const upstream = await fetch(`${HF_SPACE_URL}/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, artist, top_k: 4 }),
+          signal: AbortSignal.timeout(15_000),
+        });
 
-      if (!upstream.ok) {
-        // HF Space is cold-starting or down — fall through to local matcher
+        if (upstream.ok) {
+          const data = await upstream.json() as { results: Record<string, unknown>[] };
+          return NextResponse.json({
+            results: data.results.map(normalizeHFResult),
+          });
+        }
+      } catch {
         console.warn("HF Space unavailable, falling back to local matcher");
-      } else {
-        const data = await upstream.json();
-        return NextResponse.json(data);
       }
     }
 
-    // --- Path B: local keyword matcher (fallback / no HF_SPACE_URL set) ---
+    // Path B: local keyword matcher fallback
     const results = matchPresets(prompt, artist, 4);
 
     if (results.length === 0) {
@@ -51,14 +79,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       results: results.map((r) => ({
-        name: r.preset.name,
-        description: r.preset.description,
-        confidence: Math.min(r.score, 1.0),
+        name:         r.preset.name,
+        description:  r.preset.description,
+        confidence:   Math.min(r.score, 1.0),
         matchedArtist: r.matchedArtist,
-        matchedTags: r.matchedTags,
-        params: r.preset.params,
-        artists: r.preset.artists,
-        tags: r.preset.tags,
+        matchedTags:  r.matchedTags,
+        params:       r.preset.params,
+        artists:      r.preset.artists,
+        tags:         r.preset.tags,
       })),
     });
   } catch {
