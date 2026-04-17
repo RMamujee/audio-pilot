@@ -25,6 +25,113 @@ interface SimilarArtist {
   name: string; match: number; image?: string;
 }
 
+// ─── Search history ───────────────────────────────────────────────────────────
+
+const HISTORY_KEY = "audiopilot_history";
+
+function useSearchHistory() {
+  const [history, setHistory] = useState<string[]>([]);
+  useEffect(() => {
+    try { setHistory(JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]")); } catch { /* ignore */ }
+  }, []);
+  const add = useCallback((artist: string) => {
+    setHistory(prev => {
+      const next = [artist, ...prev.filter(a => a.toLowerCase() !== artist.toLowerCase())].slice(0, 10);
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+  const clear = useCallback(() => {
+    setHistory([]);
+    try { localStorage.removeItem(HISTORY_KEY); } catch { /* ignore */ }
+  }, []);
+  return { history, add, clear };
+}
+
+// ─── Shareable URL helpers ────────────────────────────────────────────────────
+
+function buildShareURL(artist: string, filters: {
+  sortBy: string; minMatch: number; oscFilter: string;
+  genreFilter: Set<string>; statFilters: Record<string, [number, number]>;
+}): string {
+  const p = new URLSearchParams();
+  p.set("a", artist);
+  if (filters.sortBy !== "match-desc") p.set("sort", filters.sortBy);
+  if (filters.minMatch > 0) p.set("min", String(filters.minMatch));
+  if (filters.oscFilter) p.set("osc", filters.oscFilter);
+  if (filters.genreFilter.size > 0) p.set("genre", [...filters.genreFilter].join(","));
+  const { cutoff, drive, reverbWet, attack, release, chorus } = filters.statFilters;
+  if (cutoff[0] > 20 || cutoff[1] < 20000)  p.set("cutoff",  `${cutoff[0]}-${cutoff[1]}`);
+  if (drive[0] > 0 || drive[1] < 1)         p.set("drive",   `${drive[0]}-${drive[1]}`);
+  if (reverbWet[0] > 0 || reverbWet[1] < 1) p.set("reverb",  `${reverbWet[0]}-${reverbWet[1]}`);
+  if (attack[0] > 0 || attack[1] < 5)       p.set("attack",  `${attack[0]}-${attack[1]}`);
+  if (release[0] > 0 || release[1] < 8)     p.set("release", `${release[0]}-${release[1]}`);
+  if (chorus[0] > 0 || chorus[1] < 1)       p.set("chorus",  `${chorus[0]}-${chorus[1]}`);
+  return `${window.location.origin}${window.location.pathname}?${p.toString()}`;
+}
+
+function parseURLFilters() {
+  if (typeof window === "undefined") return null;
+  const p = new URLSearchParams(window.location.search);
+  const a = p.get("a")?.trim();
+  if (!a) return null;
+  const pr = (key: string, def: [number, number]): [number, number] => {
+    const v = p.get(key); if (!v) return def;
+    const [lo, hi] = v.split("-").map(Number);
+    return [isNaN(lo) ? def[0] : lo, isNaN(hi) ? def[1] : hi];
+  };
+  return {
+    artist: a,
+    sortBy: p.get("sort") || "match-desc",
+    minMatch: Number(p.get("min") || 0),
+    oscFilter: p.get("osc") || "",
+    genreFilter: new Set(p.get("genre")?.split(",").filter(Boolean) ?? []),
+    statFilters: {
+      cutoff:    pr("cutoff",  [20, 20000]),
+      drive:     pr("drive",   [0, 1]),
+      reverbWet: pr("reverb",  [0, 1]),
+      attack:    pr("attack",  [0, 5]),
+      release:   pr("release", [0, 8]),
+      chorus:    pr("chorus",  [0, 1]),
+    },
+  };
+}
+
+// ─── Variations ───────────────────────────────────────────────────────────────
+
+function miniRng(seed: string) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0;
+  return () => { h = (Math.imul(1664525, h) + 1013904223) | 0; return (h >>> 0) / 0xffffffff; };
+}
+
+function generateVariations(base: SoundResult, count = 5): SoundResult[] {
+  return Array.from({ length: count }, (_, i) => {
+    const rng = miniRng(base.name + i);
+    const vary = (v: number, lo: number, hi: number, spread = 0.3) =>
+      Math.max(lo, Math.min(hi, v + (rng() - 0.5) * 2 * spread * (hi - lo)));
+    const p = base.params;
+    return {
+      ...base,
+      name: `${base.name} · var ${i + 1}`,
+      params: {
+        ...p,
+        cutoff:    vary(p.cutoff,    20,  20000, 0.35),
+        resonance: vary(p.resonance, 0.1, 10,    0.25),
+        attack:    vary(p.attack,    0,   5,     0.4),
+        decay:     vary(p.decay,     0,   5,     0.3),
+        sustain:   vary(p.sustain,   0,   1,     0.2),
+        release:   vary(p.release,   0,   8,     0.4),
+        reverbWet: vary(p.reverbWet, 0,   1,     0.3),
+        reverbSize: vary(p.reverbSize, 0, 1,     0.3),
+        drive:     vary(p.drive,     0,   1,     0.4),
+        chorus:    vary(p.chorus,    0,   1,     0.3),
+        delayMix:  vary(p.delayMix,  0,   1,     0.35),
+      },
+    };
+  });
+}
+
 // ─── Window width hook ────────────────────────────────────────────────────────
 
 function useWindowWidth() {
@@ -298,9 +405,9 @@ const OSC_COLORS: Record<string, string> = { sine: "#22c55e", saw: "#a855f7", sq
 
 // ─── Sound card ───────────────────────────────────────────────────────────────
 
-function SoundCard({ result, index, isPlaying, onPlay, onPlayArp, onStop }: {
+function SoundCard({ result, index, isPlaying, onPlay, onPlayArp, onStop, onVary }: {
   result: SoundResult; index: number; isPlaying: boolean;
-  onPlay: () => void; onPlayArp: () => void; onStop: () => void;
+  onPlay: () => void; onPlayArp: () => void; onStop: () => void; onVary?: () => void;
 }) {
   const [copied, setCopied]   = useState(false);
   const [exported, setExported] = useState(false);
@@ -379,6 +486,13 @@ function SoundCard({ result, index, isPlaying, onPlay, onPlayArp, onStop }: {
             title="Download as Vital synth preset">
             {exported ? "✓ Saved" : "⬇ Vital"}
           </button>
+          {onVary && (
+            <button onClick={onVary}
+              style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, cursor: "pointer", background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--muted)", transition: "all 0.2s" }}
+              title="Generate 5 randomised variants of this sound">
+              ∿ Vary
+            </button>
+          )}
           <button onClick={() => {
             navigator.clipboard.writeText(JSON.stringify(result.params, null, 2));
             setCopied(true); setTimeout(() => setCopied(false), 2000);
@@ -662,6 +776,55 @@ function SimilarSidebar({ artists, mainImage, loading, onSelect, mobile }: {
   );
 }
 
+// ─── Variations modal ────────────────────────────────────────────────────────
+
+function VariationsModal({ source, onClose, playingId, onPlay, onPlayArp, onStop }: {
+  source: SoundResult; onClose: () => void;
+  playingId: string | null;
+  onPlay: (r: SoundResult) => void; onPlayArp: (r: SoundResult) => void; onStop: () => void;
+}) {
+  const variations = useMemo(() => generateVariations(source), [source]);
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: "var(--bg,#0a0a0f)", border: "1px solid var(--border)", borderRadius: 16, width: "100%", maxWidth: 880, maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden", animation: "fadeUp 0.25s ease both" }}>
+        {/* Header */}
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexShrink: 0 }}>
+          <div>
+            <p style={{ fontSize: 15, fontWeight: 700 }}>
+              Variations of <span style={{ color: "var(--accent2)" }}>{source.name}</span>
+            </p>
+            <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>
+              5 randomised variants — preview, export or copy any you like
+            </p>
+          </div>
+          <button onClick={onClose}
+            style={{ fontSize: 20, lineHeight: 1, padding: "2px 8px", background: "none", border: "none", color: "var(--muted)", cursor: "pointer" }}>
+            ✕
+          </button>
+        </div>
+        {/* Grid */}
+        <div style={{ overflowY: "auto", padding: 16, display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(340px,1fr))", gap: 12 }}>
+          {variations.map((v, i) => (
+            <SoundCard key={v.name} result={v} index={i}
+              isPlaying={playingId === v.name}
+              onPlay={() => onPlay(v)} onPlayArp={() => onPlayArp(v)} onStop={onStop}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Filter types ─────────────────────────────────────────────────────────────
 
 type OscFilter = "" | "sine" | "saw" | "square";
@@ -694,6 +857,9 @@ export default function Home() {
   const [artistImage,    setArtistImage]    = useState<string | null>(null);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
   const [showGenrePicker, setShowGenrePicker] = useState(false);
+  const [variationsFor,  setVariationsFor]  = useState<SoundResult | null>(null);
+  const [linkCopied,     setLinkCopied]     = useState(false);
+  const { history: searchHistory, add: addToHistory, clear: clearHistory } = useSearchHistory();
 
   // ── Filters ──────────────────────────────────────────────────────────────────
   const [sortBy,      setSortBy]      = useState<SortMode>("match-desc");
@@ -745,6 +911,21 @@ export default function Home() {
     setSortBy("match-desc"); setMinMatch(0); setOscFilter(""); setGenreFilter(new Set()); setStatFilters(STAT_DEFAULTS);
   }, []);
 
+  // ── URL init: read ?a= on mount and auto-search ───────────────────────────
+  const searchRef = useRef<((a: string, tags?: string[]) => void) | null>(null);
+  useEffect(() => { searchRef.current = search; });
+  useEffect(() => {
+    const url = parseURLFilters();
+    if (!url) return;
+    setArtist(url.artist);
+    setSortBy(url.sortBy as SortMode);
+    setMinMatch(url.minMatch);
+    setOscFilter(url.oscFilter as OscFilter);
+    setGenreFilter(url.genreFilter as Set<string>);
+    setStatFilters(url.statFilters);
+    setTimeout(() => searchRef.current?.(url.artist), 0);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const audioCtxRef  = useRef<AudioContext | null>(null);
   const stopRef      = useRef<(() => void) | null>(null);
   const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -790,6 +971,11 @@ export default function Home() {
     setSortBy("match-desc"); setMinMatch(0); setOscFilter(""); setGenreFilter(new Set()); setStatFilters(STAT_DEFAULTS);
     setSearchedArtist(a);
     setShowGenrePicker(false);
+    setVariationsFor(null);
+    addToHistory(a);
+    if (typeof window !== "undefined") {
+      window.history.replaceState({}, "", `?${new URLSearchParams({ a }).toString()}`);
+    }
     setSimilarArtists([]); setArtistImage(null); setLoadingSimilar(true);
 
     const [soundsRes] = await Promise.all([
@@ -876,6 +1062,25 @@ export default function Home() {
           )}
         </div>
 
+        {/* Search history */}
+        {!hasContent && !loading && searchHistory.length > 0 && (
+          <div style={{ marginBottom: 20, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+            <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", marginRight: 4, whiteSpace: "nowrap" }}>Recent</span>
+            {searchHistory.map(h => (
+              <button key={h} onClick={() => { setArtist(h); search(h); }}
+                style={{ fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)", cursor: "pointer", fontFamily: "inherit", transition: "all 0.15s" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.background = "var(--surface2)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--surface)"; }}>
+                {h}
+              </button>
+            ))}
+            <button onClick={clearHistory}
+              style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--muted)", cursor: "pointer", fontFamily: "inherit", marginLeft: 4 }}>
+              Clear
+            </button>
+          </div>
+        )}
+
         {/* Featured artists (when no search yet) */}
         {!hasContent && !loading && (
           <div style={{ marginBottom: 40 }}>
@@ -928,14 +1133,26 @@ export default function Home() {
                   {filteredResults.length !== results.length && <span style={{ color: "var(--muted)", fontSize: 12, fontWeight: 400 }}>{" "}(of {results.length})</span>}
                   {" "}sounds for <span style={{ color: "var(--accent2)" }}>{searchedArtist}</span>
                 </p>
-                {dataSources.length > 0 && (
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <span style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>via</span>
-                    {dataSources.map(s => (
-                      <span key={s} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: "rgba(34,197,94,0.12)", color: "var(--green)", border: "1px solid rgba(34,197,94,0.25)", fontWeight: 700 }}>{s}</span>
-                    ))}
-                  </div>
-                )}
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  {dataSources.length > 0 && (
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>via</span>
+                      {dataSources.map(s => (
+                        <span key={s} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: "rgba(34,197,94,0.12)", color: "var(--green)", border: "1px solid rgba(34,197,94,0.25)", fontWeight: 700 }}>{s}</span>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => {
+                      const url = buildShareURL(searchedArtist, { sortBy, minMatch, oscFilter, genreFilter, statFilters });
+                      navigator.clipboard.writeText(url);
+                      setLinkCopied(true);
+                      setTimeout(() => setLinkCopied(false), 2000);
+                    }}
+                    style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: `1px solid ${linkCopied ? "var(--green)" : "var(--border)"}`, background: linkCopied ? "rgba(34,197,94,0.12)" : "var(--surface2)", color: linkCopied ? "var(--green)" : "var(--muted)", cursor: "pointer", fontFamily: "inherit", fontWeight: 600, whiteSpace: "nowrap", transition: "all 0.2s" }}>
+                    {linkCopied ? "✓ Copied!" : "🔗 Copy Link"}
+                  </button>
+                </div>
               </div>
 
               {/* Filter bar */}
@@ -1030,6 +1247,7 @@ export default function Home() {
                     onPlay={() => handlePlay(r)}
                     onPlayArp={() => handlePlayArp(r)}
                     onStop={stopCurrent}
+                    onVary={() => setVariationsFor(r)}
                   />
                 ))}
               </div>
@@ -1052,6 +1270,18 @@ export default function Home() {
               )}
             </div>
           </div>
+        )}
+
+        {/* Variations modal */}
+        {variationsFor && (
+          <VariationsModal
+            source={variationsFor}
+            onClose={() => setVariationsFor(null)}
+            playingId={playingId}
+            onPlay={handlePlay}
+            onPlayArp={handlePlayArp}
+            onStop={stopCurrent}
+          />
         )}
 
         <footer style={{ marginTop: 60, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>
