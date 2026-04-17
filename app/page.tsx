@@ -21,6 +21,10 @@ interface ArtistSuggestion {
   name: string; disambiguation: string; country: string; score: number;
 }
 
+interface SimilarArtist {
+  name: string; match: number;
+}
+
 // ─── Audio engine ─────────────────────────────────────────────────────────────
 
 function makeReverb(ctx: AudioContext, size: number, wet: number): ConvolverNode {
@@ -388,6 +392,54 @@ const STAT_DEFAULTS = {
   chorus:    [0, 1]      as [number, number],
 };
 
+// ─── Similar artists sidebar ──────────────────────────────────────────────────
+
+function SimilarSidebar({ artists, loadingMain, onSelect }: {
+  artists: SimilarArtist[]; loadingMain: boolean; onSelect: (name: string) => void;
+}) {
+  return (
+    <div style={{
+      width: 210, flexShrink: 0, position: "sticky", top: 20,
+      background: "var(--surface)", border: "1px solid var(--border)",
+      borderRadius: 12, padding: "14px 12px", maxHeight: "calc(100vh - 40px)", overflowY: "auto",
+    }}>
+      <p style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>
+        Similar Artists
+      </p>
+      {loadingMain ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {[...Array(8)].map((_, i) => (
+            <div key={i} style={{ height: 44, borderRadius: 8, background: "var(--surface2)", animation: "pulse 1.5s ease infinite" }} />
+          ))}
+        </div>
+      ) : artists.length === 0 ? (
+        <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>No similar artists found.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {artists.map((a) => (
+            <button
+              key={a.name}
+              onClick={() => onSelect(a.name)}
+              style={{
+                display: "block", width: "100%", textAlign: "left",
+                padding: "8px 10px", borderRadius: 8,
+                border: "1px solid var(--border)", background: "transparent",
+                color: "var(--text)", cursor: "pointer", fontFamily: "inherit",
+                transition: "all 0.15s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface2)"; e.currentTarget.style.borderColor = "var(--accent)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "var(--border)"; }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.name}</div>
+              <div style={{ fontSize: 10, color: "var(--accent2)" }}>{Math.round(a.match * 100)}% similar</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function Home() {
@@ -399,13 +451,14 @@ export default function Home() {
   const [playingId,      setPlayingId]      = useState<string | null>(null);
   const [searchedArtist, setSearchedArtist] = useState("");
   const [dataSources,    setDataSources]    = useState<string[]>([]);
+  const [similarArtists, setSimilarArtists] = useState<SimilarArtist[]>([]);
+  const [loadingSimilar, setLoadingSimilar] = useState(false);
 
   // ── Filters ──────────────────────────────────────────────────────────────────
   const [sortBy,       setSortBy]       = useState<SortMode>("match-desc");
   const [minMatch,     setMinMatch]     = useState(0);
   const [oscFilter,    setOscFilter]    = useState<OscFilter>("");
   const [genreFilter,  setGenreFilter]  = useState<Set<string>>(new Set());
-  const [showStats,    setShowStats]    = useState(false);
   const [statFilters,  setStatFilters]  = useState(STAT_DEFAULTS);
 
   const uniqueGenres = useMemo(() =>
@@ -478,24 +531,38 @@ export default function Home() {
   const search = useCallback(async (overArtist?: string) => {
     const a = (overArtist ?? artist).trim();
     if (!a) return;
-    stopCurrent(); setLoading(true); setError(""); setResults([]); setVisibleCount(100);
+    stopCurrent();
+    setLoading(true); setError(""); setResults([]); setVisibleCount(100);
     setSortBy("match-desc"); setMinMatch(0); setOscFilter(""); setGenreFilter(new Set()); setStatFilters(STAT_DEFAULTS);
     setSearchedArtist(a);
-    try {
-      const res = await fetch("/api/generate", {
+    setSimilarArtists([]); setLoadingSimilar(true);
+
+    // Fetch sounds + similar artists in parallel
+    const [soundsRes] = await Promise.all([
+      fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ artist: a, top_k: 2600 }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error ?? "Something went wrong"); return; }
-      setResults(data.results ?? []);
-      setDataSources(data.sources ?? []);
-    } catch {
-      setError("Failed to reach API");
-    } finally {
-      setLoading(false);
+      }).then(async r => ({ ok: r.ok, data: await r.json() })).catch(() => ({ ok: false, data: {} })),
+
+      fetch(`/api/similar?artist=${encodeURIComponent(a)}`)
+        .then(async r => {
+          if (r.ok) {
+            const d = await r.json() as { similar: SimilarArtist[] };
+            setSimilarArtists(d.similar ?? []);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoadingSimilar(false)),
+    ]);
+
+    if (!soundsRes.ok) {
+      setError((soundsRes.data as { error?: string }).error ?? "Something went wrong");
+    } else {
+      setResults((soundsRes.data as { results?: SoundResult[] }).results ?? []);
+      setDataSources((soundsRes.data as { sources?: string[] }).sources ?? []);
     }
+    setLoading(false);
   }, [artist, stopCurrent]);
 
   return (
@@ -506,7 +573,7 @@ export default function Home() {
         @keyframes spin   { to { transform:translateY(-50%) rotate(360deg); } }
       `}</style>
 
-      <div style={{ maxWidth: 1000, margin: "0 auto", padding: "0 16px 80px" }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 16px 80px" }}>
 
         {/* Header */}
         <header style={{ padding: "48px 0 36px", textAlign: "center" }}>
@@ -567,165 +634,167 @@ export default function Home() {
           </div>
         )}
 
-        {/* Results + filters */}
-        {results.length > 0 && (
-          <>
-            {/* Results header */}
-            <div style={{ marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-              <p style={{ fontSize: 17, fontWeight: 700 }}>
-                <span style={{ color: "var(--accent2)" }}>{Math.min(visibleCount, filteredResults.length)}</span>
-                {" "}of{" "}
-                <span style={{ color: "var(--green)" }}>{filteredResults.length}</span>
-                {filteredResults.length !== results.length && <span style={{ color: "var(--muted)", fontSize: 13, fontWeight: 400 }}>{" "}(filtered from {results.length})</span>}
-                {" "}sound{filteredResults.length !== 1 ? "s" : ""} for{" "}
-                <span style={{ color: "var(--accent2)" }}>{searchedArtist}</span>
-              </p>
-              {dataSources.length > 0 && (
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <span style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>via</span>
-                  {dataSources.map(s => (
-                    <span key={s} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: "rgba(34,197,94,0.12)", color: "var(--green)", border: "1px solid rgba(34,197,94,0.25)", fontWeight: 700 }}>{s}</span>
-                  ))}
-                </div>
-              )}
-            </div>
+        {/* Results — sidebar + main content */}
+        {(results.length > 0 || loading) && (
+          <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
 
-            {/* Filter bar */}
-            <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px", marginBottom: 20 }}>
+            {/* Similar artists sidebar */}
+            <SimilarSidebar
+              artists={similarArtists}
+              loadingMain={loadingSimilar}
+              onSelect={(name) => { setArtist(name); search(name); }}
+            />
 
-              {/* Row 1: Sort + Match % + Osc */}
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", marginBottom: 12 }}>
+            {/* Main content */}
+            <div style={{ flex: 1, minWidth: 0 }}>
 
-                {/* Sort */}
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>Sort</span>
-                  <div style={{ display: "flex", gap: 3 }}>
-                    {(["match-desc", "match-asc", "name"] as SortMode[]).map(s => (
-                      <button key={s} onClick={() => { setSortBy(s); setVisibleCount(100); }}
-                        style={{ fontSize: 11, padding: "4px 9px", borderRadius: 6, border: `1px solid ${sortBy === s ? "var(--accent)" : "var(--border)"}`, background: sortBy === s ? "rgba(124,58,237,0.18)" : "var(--surface2)", color: sortBy === s ? "var(--accent2)" : "var(--muted)", cursor: "pointer", fontFamily: "inherit", fontWeight: 600, whiteSpace: "nowrap" }}>
-                        {s === "match-desc" ? "Best Match" : s === "match-asc" ? "Lowest Match" : "A – Z"}
-                      </button>
+              {/* Results header */}
+              <div style={{ marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                <p style={{ fontSize: 17, fontWeight: 700 }}>
+                  <span style={{ color: "var(--accent2)" }}>{Math.min(visibleCount, filteredResults.length)}</span>
+                  {" "}of{" "}
+                  <span style={{ color: "var(--green)" }}>{filteredResults.length}</span>
+                  {filteredResults.length !== results.length && <span style={{ color: "var(--muted)", fontSize: 13, fontWeight: 400 }}>{" "}(filtered from {results.length})</span>}
+                  {" "}sound{filteredResults.length !== 1 ? "s" : ""} for{" "}
+                  <span style={{ color: "var(--accent2)" }}>{searchedArtist}</span>
+                </p>
+                {dataSources.length > 0 && (
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>via</span>
+                    {dataSources.map(s => (
+                      <span key={s} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: "rgba(34,197,94,0.12)", color: "var(--green)", border: "1px solid rgba(34,197,94,0.25)", fontWeight: 700 }}>{s}</span>
                     ))}
                   </div>
-                </div>
-
-                {/* Min match % */}
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>Match</span>
-                  <div style={{ display: "flex", gap: 3 }}>
-                    {[0, 35, 50, 70, 90].map(pct => (
-                      <button key={pct} onClick={() => { setMinMatch(pct); setVisibleCount(100); }}
-                        style={{ fontSize: 11, padding: "4px 9px", borderRadius: 6, border: `1px solid ${minMatch === pct ? "var(--green)" : "var(--border)"}`, background: minMatch === pct ? "rgba(34,197,94,0.15)" : "var(--surface2)", color: minMatch === pct ? "var(--green)" : "var(--muted)", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
-                        {pct === 0 ? "Any" : `${pct}%+`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Osc type */}
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Osc</span>
-                  <div style={{ display: "flex", gap: 3 }}>
-                    {(["", "sine", "saw", "square"] as OscFilter[]).map(o => {
-                      const color = o === "sine" ? "#22c55e" : o === "saw" ? "#a855f7" : o === "square" ? "#f59e0b" : "var(--muted)";
-                      const active = oscFilter === o;
-                      return (
-                        <button key={o || "all"} onClick={() => { setOscFilter(o); setVisibleCount(100); }}
-                          style={{ fontSize: 11, padding: "4px 9px", borderRadius: 6, border: `1px solid ${active ? color : "var(--border)"}`, background: active ? `${color}22` : "var(--surface2)", color: active ? color : "var(--muted)", cursor: "pointer", fontFamily: "monospace", fontWeight: 700, textTransform: "uppercase" }}>
-                          {o === "" ? "All" : o}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                )}
               </div>
 
-              {/* Row 2: Genres + stat toggle + clear */}
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-                <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>Genre</span>
-                {uniqueGenres.slice(0, 12).map(g => {
-                  const active = genreFilter.has(g.toLowerCase());
-                  const gc = gColor(g);
-                  return (
-                    <button key={g} onClick={() => {
-                      setGenreFilter(prev => {
-                        const next = new Set(prev);
-                        active ? next.delete(g.toLowerCase()) : next.add(g.toLowerCase());
-                        return next;
-                      });
-                      setVisibleCount(100);
-                    }}
-                      style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, border: `1px solid ${active ? gc : "var(--border)"}`, background: active ? `${gc}22` : "var(--surface2)", color: active ? gc : "var(--muted)", cursor: "pointer", fontFamily: "inherit", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                      {g}{active ? " ×" : ""}
-                    </button>
-                  );
-                })}
-                {uniqueGenres.length > 12 && (
-                  <span style={{ fontSize: 10, color: "var(--muted)" }}>+{uniqueGenres.length - 12} more</span>
-                )}
+              {/* Filter bar */}
+              <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px", marginBottom: 20 }}>
 
-                <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-                  <button onClick={() => { setShowStats(s => !s); }}
-                    style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: `1px solid ${showStats ? "var(--accent)" : "var(--border)"}`, background: showStats ? "rgba(124,58,237,0.15)" : "var(--surface2)", color: showStats ? "var(--accent2)" : "var(--muted)", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
-                    {showStats ? "▲" : "▼"} Stat Filters
-                  </button>
+                {/* Row 1: Sort + Match % + Osc */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", marginBottom: 12 }}>
+
+                  {/* Sort */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>Sort</span>
+                    <div style={{ display: "flex", gap: 3 }}>
+                      {(["match-desc", "match-asc", "name"] as SortMode[]).map(s => (
+                        <button key={s} onClick={() => { setSortBy(s); setVisibleCount(100); }}
+                          style={{ fontSize: 11, padding: "4px 9px", borderRadius: 6, border: `1px solid ${sortBy === s ? "var(--accent)" : "var(--border)"}`, background: sortBy === s ? "rgba(124,58,237,0.18)" : "var(--surface2)", color: sortBy === s ? "var(--accent2)" : "var(--muted)", cursor: "pointer", fontFamily: "inherit", fontWeight: 600, whiteSpace: "nowrap" }}>
+                          {s === "match-desc" ? "Best Match" : s === "match-asc" ? "Lowest Match" : "A – Z"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Min match % */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>Match</span>
+                    <div style={{ display: "flex", gap: 3 }}>
+                      {[0, 35, 50, 70, 90].map(pct => (
+                        <button key={pct} onClick={() => { setMinMatch(pct); setVisibleCount(100); }}
+                          style={{ fontSize: 11, padding: "4px 9px", borderRadius: 6, border: `1px solid ${minMatch === pct ? "var(--green)" : "var(--border)"}`, background: minMatch === pct ? "rgba(34,197,94,0.15)" : "var(--surface2)", color: minMatch === pct ? "var(--green)" : "var(--muted)", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                          {pct === 0 ? "Any" : `${pct}%+`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Osc type */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Osc</span>
+                    <div style={{ display: "flex", gap: 3 }}>
+                      {(["", "sine", "saw", "square"] as OscFilter[]).map(o => {
+                        const color = o === "sine" ? "#22c55e" : o === "saw" ? "#a855f7" : o === "square" ? "#f59e0b" : "var(--muted)";
+                        const active = oscFilter === o;
+                        return (
+                          <button key={o || "all"} onClick={() => { setOscFilter(o); setVisibleCount(100); }}
+                            style={{ fontSize: 11, padding: "4px 9px", borderRadius: 6, border: `1px solid ${active ? color : "var(--border)"}`, background: active ? `${color}22` : "var(--surface2)", color: active ? color : "var(--muted)", cursor: "pointer", fontFamily: "monospace", fontWeight: 700, textTransform: "uppercase" }}>
+                            {o === "" ? "All" : o}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Row 2: Genres + clear */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 16 }}>
+                  <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>Genre</span>
+                  {uniqueGenres.slice(0, 12).map(g => {
+                    const active = genreFilter.has(g.toLowerCase());
+                    const gc = gColor(g);
+                    return (
+                      <button key={g} onClick={() => {
+                        setGenreFilter(prev => {
+                          const next = new Set(prev);
+                          active ? next.delete(g.toLowerCase()) : next.add(g.toLowerCase());
+                          return next;
+                        });
+                        setVisibleCount(100);
+                      }}
+                        style={{ fontSize: 10, padding: "3px 8px", borderRadius: 5, border: `1px solid ${active ? gc : "var(--border)"}`, background: active ? `${gc}22` : "var(--surface2)", color: active ? gc : "var(--muted)", cursor: "pointer", fontFamily: "inherit", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        {g}{active ? " ×" : ""}
+                      </button>
+                    );
+                  })}
+                  {uniqueGenres.length > 12 && (
+                    <span style={{ fontSize: 10, color: "var(--muted)" }}>+{uniqueGenres.length - 12} more</span>
+                  )}
                   {activeFilterCount > 0 && (
-                    <button onClick={clearFilters}
-                      style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(239,68,68,0.4)", background: "rgba(239,68,68,0.08)", color: "#ef4444", cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}>
+                    <button onClick={clearFilters} style={{ marginLeft: "auto", fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(239,68,68,0.4)", background: "rgba(239,68,68,0.08)", color: "#ef4444", cursor: "pointer", fontFamily: "inherit", fontWeight: 700 }}>
                       {activeFilterCount} filter{activeFilterCount !== 1 ? "s" : ""} × Clear
                     </button>
                   )}
                 </div>
+
+                {/* Stat range filters — always visible */}
+                <div style={{ paddingTop: 14, borderTop: "1px solid var(--border)", display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: "0 28px" }}>
+                  <RangeSlider label="Cutoff (Hz)"  min={20}   max={20000} step={100}  value={statFilters.cutoff}    onChange={v => { setStatFilters(f => ({...f, cutoff: v}));    setVisibleCount(100); }} format={v => v >= 1000 ? `${(v/1000).toFixed(1)}k` : `${v}`} />
+                  <RangeSlider label="Drive"        min={0}    max={1}     step={0.01} value={statFilters.drive}     onChange={v => { setStatFilters(f => ({...f, drive: v}));     setVisibleCount(100); }} format={v => v.toFixed(2)} />
+                  <RangeSlider label="Reverb"       min={0}    max={1}     step={0.01} value={statFilters.reverbWet} onChange={v => { setStatFilters(f => ({...f, reverbWet: v})); setVisibleCount(100); }} format={v => v.toFixed(2)} />
+                  <RangeSlider label="Chorus"       min={0}    max={1}     step={0.01} value={statFilters.chorus}    onChange={v => { setStatFilters(f => ({...f, chorus: v}));    setVisibleCount(100); }} format={v => v.toFixed(2)} />
+                  <RangeSlider label="Attack (s)"   min={0}    max={5}     step={0.05} value={statFilters.attack}    onChange={v => { setStatFilters(f => ({...f, attack: v}));    setVisibleCount(100); }} format={v => `${v.toFixed(2)}s`} />
+                  <RangeSlider label="Release (s)"  min={0}    max={8}     step={0.1}  value={statFilters.release}   onChange={v => { setStatFilters(f => ({...f, release: v}));   setVisibleCount(100); }} format={v => `${v.toFixed(1)}s`} />
+                </div>
               </div>
 
-              {/* Collapsible stat filters */}
-              {showStats && (
-                <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)", display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: "0 28px" }}>
-                  <RangeSlider label="Cutoff (Hz)"  min={20}   max={20000} step={100} value={statFilters.cutoff}    onChange={v => { setStatFilters(f => ({...f, cutoff: v}));    setVisibleCount(100); }} format={v => v >= 1000 ? `${(v/1000).toFixed(1)}k` : `${v}`} />
-                  <RangeSlider label="Drive"        min={0}    max={1}     step={0.01} value={statFilters.drive}    onChange={v => { setStatFilters(f => ({...f, drive: v}));     setVisibleCount(100); }} format={v => v.toFixed(2)} />
-                  <RangeSlider label="Reverb"       min={0}    max={1}     step={0.01} value={statFilters.reverbWet} onChange={v => { setStatFilters(f => ({...f, reverbWet: v})); setVisibleCount(100); }} format={v => v.toFixed(2)} />
-                  <RangeSlider label="Chorus"       min={0}    max={1}     step={0.01} value={statFilters.chorus}   onChange={v => { setStatFilters(f => ({...f, chorus: v}));    setVisibleCount(100); }} format={v => v.toFixed(2)} />
-                  <RangeSlider label="Attack (s)"   min={0}    max={5}     step={0.05} value={statFilters.attack}   onChange={v => { setStatFilters(f => ({...f, attack: v}));    setVisibleCount(100); }} format={v => `${v.toFixed(2)}s`} />
-                  <RangeSlider label="Release (s)"  min={0}    max={8}     step={0.1}  value={statFilters.release}  onChange={v => { setStatFilters(f => ({...f, release: v}));   setVisibleCount(100); }} format={v => `${v.toFixed(1)}s`} />
+              {/* Grid */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(360px,1fr))", gap: 14 }}>
+                {filteredResults.slice(0, visibleCount).map((r, i) => (
+                  <SoundCard
+                    key={r.name} result={r} index={i}
+                    isPlaying={playingId === r.name}
+                    onPlay={() => handlePlay(r)}
+                    onStop={stopCurrent}
+                  />
+                ))}
+              </div>
+
+              {filteredResults.length === 0 && !loading && (
+                <div style={{ textAlign: "center", padding: "48px 0", color: "var(--muted)" }}>
+                  <div style={{ fontSize: 32, marginBottom: 12 }}>∅</div>
+                  <p style={{ fontSize: 14 }}>No sounds match the current filters.</p>
+                  <button onClick={clearFilters} style={{ marginTop: 12, fontSize: 13, padding: "8px 18px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface2)", color: "var(--text)", cursor: "pointer", fontFamily: "inherit" }}>Clear filters</button>
+                </div>
+              )}
+
+              {visibleCount < filteredResults.length && (
+                <div style={{ textAlign: "center", marginTop: 28 }}>
+                  <button
+                    onClick={() => setVisibleCount(c => Math.min(c + 100, filteredResults.length))}
+                    style={{
+                      padding: "12px 32px", borderRadius: 10,
+                      background: "linear-gradient(135deg,var(--accent),var(--accent2))",
+                      border: "none", color: "#fff", fontSize: 14, fontWeight: 800,
+                      cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.06em",
+                    }}>
+                    Load 100 more ({filteredResults.length - visibleCount} remaining)
+                  </button>
                 </div>
               )}
             </div>
-
-            {/* Grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(380px,1fr))", gap: 14 }}>
-              {filteredResults.slice(0, visibleCount).map((r, i) => (
-                <SoundCard
-                  key={r.name} result={r} index={i}
-                  isPlaying={playingId === r.name}
-                  onPlay={() => handlePlay(r)}
-                  onStop={stopCurrent}
-                />
-              ))}
-            </div>
-
-            {filteredResults.length === 0 && (
-              <div style={{ textAlign: "center", padding: "48px 0", color: "var(--muted)" }}>
-                <div style={{ fontSize: 32, marginBottom: 12 }}>∅</div>
-                <p style={{ fontSize: 14 }}>No sounds match the current filters.</p>
-                <button onClick={clearFilters} style={{ marginTop: 12, fontSize: 13, padding: "8px 18px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface2)", color: "var(--text)", cursor: "pointer", fontFamily: "inherit" }}>Clear filters</button>
-              </div>
-            )}
-
-            {visibleCount < filteredResults.length && (
-              <div style={{ textAlign: "center", marginTop: 28 }}>
-                <button
-                  onClick={() => setVisibleCount(c => Math.min(c + 100, filteredResults.length))}
-                  style={{
-                    padding: "12px 32px", borderRadius: 10,
-                    background: "linear-gradient(135deg,var(--accent),var(--accent2))",
-                    border: "none", color: "#fff", fontSize: 14, fontWeight: 800,
-                    cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.06em",
-                  }}>
-                  Load 100 more ({filteredResults.length - visibleCount} remaining)
-                </button>
-              </div>
-            )}
-          </>
+          </div>
         )}
 
         <footer style={{ marginTop: 60, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>
