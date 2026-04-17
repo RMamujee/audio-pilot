@@ -502,7 +502,7 @@ export default function Home() {
 
         <footer style={{ marginTop: 60, textAlign: "center", color: "var(--muted)", fontSize: 12 }}>
           Open-source · MusicBrainz + Next.js ·{" "}
-          <a href="https://github.com/RMamujee/serum-dupe" style={{ color: "var(--accent2)", textDecoration: "none" }}>GitHub</a>
+          <a href="https://github.com/RMamujee/audio-pilot" style={{ color: "var(--accent2)", textDecoration: "none" }}>GitHub</a>
         </footer>
       </div>
     </>
