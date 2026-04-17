@@ -423,6 +423,78 @@ const TEMPLATES: SoundTemplate[] = [
     decay:{min:0.8,max:1.8}, sustain:{min:0.5,max:0.82}, release:{min:1.2,max:2.5},
     reverbSize:{min:0.45,max:0.72}, reverbWet:{min:0.32,max:0.58}, drive:{min:0.08,max:0.22}, chorus:{min:0.28,max:0.55}, delayMix:{min:0.12,max:0.32},
   },
+  {
+    name: "Plugg Lead", description: "Soft melodic lead — plugg and rage trap", genre: "plugg",
+    matchTags: ["plugg","rage","trap","melodic trap","cloud rap","hyperpop","bedroom pop","atmospheric"],
+    oscTypes: ["sine","saw"],
+    cutoff:{min:2000,max:7000}, resonance:{min:0.2,max:0.7}, attack:{min:0.01,max:0.08},
+    decay:{min:0.3,max:0.8}, sustain:{min:0.5,max:0.88}, release:{min:1.0,max:2.5},
+    reverbSize:{min:0.55,max:0.82}, reverbWet:{min:0.4,max:0.72}, drive:{min:0.0,max:0.1}, chorus:{min:0.3,max:0.68}, delayMix:{min:0.2,max:0.45},
+  },
+  {
+    name: "Metal Riff", description: "Searing distorted lead — heavy metal and metalcore", genre: "metal",
+    matchTags: ["metal","heavy metal","metalcore","death metal","doom metal","hardcore","rock","djent","thrash"],
+    oscTypes: ["square","saw"],
+    cutoff:{min:3000,max:12000}, resonance:{min:1.0,max:3.5}, attack:{min:0.001,max:0.005},
+    decay:{min:0.05,max:0.2}, sustain:{min:0.7,max:0.95}, release:{min:0.1,max:0.5},
+    reverbSize:{min:0.1,max:0.32}, reverbWet:{min:0.05,max:0.18}, drive:{min:0.72,max:0.99}, chorus:{min:0.1,max:0.35}, delayMix:{min:0.05,max:0.2},
+  },
+  {
+    name: "Gospel Organ", description: "Warm full organ — gospel and church soul", genre: "gospel",
+    matchTags: ["gospel","soul","funk","blues","r&b","classic soul","choir","spiritual","christian"],
+    oscTypes: ["square"],
+    cutoff:{min:2500,max:7000}, resonance:{min:0.3,max:0.8}, attack:{min:0.005,max:0.03},
+    decay:{min:0.4,max:1.0}, sustain:{min:0.75,max:0.96}, release:{min:0.8,max:2.0},
+    reverbSize:{min:0.35,max:0.62}, reverbWet:{min:0.22,max:0.48}, drive:{min:0.18,max:0.45}, chorus:{min:0.12,max:0.4}, delayMix:{min:0.05,max:0.18},
+  },
+  {
+    name: "Reggae Bass", description: "Rubbery skank bass — reggae and dub", genre: "reggae",
+    matchTags: ["reggae","dub","dancehall","ska","roots","jamaican","bass","tropical"],
+    oscTypes: ["sine","square"],
+    cutoff:{min:100,max:350}, resonance:{min:0.4,max:1.5}, attack:{min:0.001,max:0.008},
+    decay:{min:0.3,max:0.8}, sustain:{min:0.1,max:0.4}, release:{min:0.3,max:0.8},
+    reverbSize:{min:0.3,max:0.6}, reverbWet:{min:0.15,max:0.38}, drive:{min:0.05,max:0.22}, chorus:{min:0.02,max:0.12}, delayMix:{min:0.25,max:0.55},
+  },
+  {
+    name: "Indie Fuzz", description: "Warm fuzzy guitar tone — indie rock and shoegaze", genre: "indie rock",
+    matchTags: ["indie","indie rock","alternative","rock","grunge","britpop","dream pop","post-punk","lo-fi"],
+    oscTypes: ["saw","square"],
+    cutoff:{min:800,max:4500}, resonance:{min:0.4,max:1.2}, attack:{min:0.01,max:0.06},
+    decay:{min:0.2,max:0.6}, sustain:{min:0.55,max:0.88}, release:{min:0.8,max:2.2},
+    reverbSize:{min:0.3,max:0.62}, reverbWet:{min:0.2,max:0.48}, drive:{min:0.35,max:0.78}, chorus:{min:0.2,max:0.55}, delayMix:{min:0.1,max:0.3},
+  },
+  {
+    name: "New Age Pad", description: "Celestial drifting pad — new age and meditation", genre: "new age",
+    matchTags: ["new age","meditation","spiritual","healing","relaxation","ambient","nature","yoga","mindfulness"],
+    oscTypes: ["sine"],
+    cutoff:{min:1500,max:5000}, resonance:{min:0.15,max:0.4}, attack:{min:1.5,max:4.0},
+    decay:{min:1.5,max:3.0}, sustain:{min:0.8,max:0.99}, release:{min:4.0,max:9.0},
+    reverbSize:{min:0.88,max:0.99}, reverbWet:{min:0.72,max:0.95}, drive:{min:0.0,max:0.03}, chorus:{min:0.4,max:0.75}, delayMix:{min:0.25,max:0.5},
+  },
+  {
+    name: "Hyperpop Synth", description: "Glitchy bright synth — hyperpop and digicore", genre: "hyperpop",
+    matchTags: ["hyperpop","digicore","pc music","bubblegum bass","emo rap","pop punk","electronic","experimental","bright"],
+    oscTypes: ["saw","square"],
+    cutoff:{min:6000,max:20000}, resonance:{min:1.5,max:5.0}, attack:{min:0.001,max:0.008},
+    decay:{min:0.05,max:0.2}, sustain:{min:0.3,max:0.75}, release:{min:0.08,max:0.3},
+    reverbSize:{min:0.15,max:0.42}, reverbWet:{min:0.1,max:0.3}, drive:{min:0.4,max:0.85}, chorus:{min:0.4,max:0.88}, delayMix:{min:0.15,max:0.4},
+  },
+  {
+    name: "Boom Bap Lead", description: "Gritty sampled lead — classic boom bap and golden era", genre: "boom bap",
+    matchTags: ["boom bap","hip-hop","east coast","rap","classic hip-hop","golden age","jazz rap","conscious"],
+    oscTypes: ["saw","square"],
+    cutoff:{min:1500,max:4500}, resonance:{min:0.3,max:0.8}, attack:{min:0.005,max:0.03},
+    decay:{min:0.3,max:0.8}, sustain:{min:0.45,max:0.78}, release:{min:0.5,max:1.5},
+    reverbSize:{min:0.2,max:0.45}, reverbWet:{min:0.1,max:0.28}, drive:{min:0.15,max:0.42}, chorus:{min:0.1,max:0.32}, delayMix:{min:0.1,max:0.28},
+  },
+  {
+    name: "Pop Ballad Pad", description: "Lush emotive pad — pop and singer-songwriter", genre: "pop",
+    matchTags: ["pop","singer-songwriter","indie pop","art pop","chamber pop","electropop","soft rock","ballad"],
+    oscTypes: ["saw","sine"],
+    cutoff:{min:3000,max:9000}, resonance:{min:0.2,max:0.6}, attack:{min:0.3,max:1.0},
+    decay:{min:0.8,max:1.8}, sustain:{min:0.72,max:0.95}, release:{min:2.0,max:5.0},
+    reverbSize:{min:0.55,max:0.82}, reverbWet:{min:0.38,max:0.65}, drive:{min:0.0,max:0.08}, chorus:{min:0.45,max:0.82}, delayMix:{min:0.15,max:0.35},
+  },
 ];
 
 // ─── Seeded RNG ───────────────────────────────────────────────────────────────
@@ -444,27 +516,23 @@ export function generateSounds(artistName: string, artistTags: string[]): Genera
   const tags = artistTags.map(t => t.toLowerCase());
   const rng  = seededRng(artistName.toLowerCase());
 
-  // Score every template against the artist's tags
-  const matched = TEMPLATES.map(t => {
+  // Score every template against the artist's tags — use ALL templates, sorted by relevance
+  const pool = TEMPLATES.map(t => {
     const hits = t.matchTags.filter(mt => tags.some(at2 => at2.includes(mt) || mt.includes(at2)));
     return { t, score: hits.length / Math.max(t.matchTags.length, 1), hits };
-  }).filter(({ score }) => score > 0);
-
-  // Fallback: use first 5 templates if no tags matched
-  const pool = matched.length > 0
-    ? matched
-    : TEMPLATES.slice(0, 5).map(t => ({ t, score: 0.3, hits: [] as string[] }));
+  }).sort((a, b) => b.score - a.score);
 
   const sounds: GeneratedSound[] = [];
 
   for (const { t, score, hits } of pool) {
     const oscType = t.oscTypes[Math.floor(rng() * t.oscTypes.length)];
+    const confidence = parseFloat(Math.min(0.35 + score * 0.65, 1.0).toFixed(2));
     for (const v of VARIATIONS) {
       sounds.push({
         name:          `${t.name} — ${v.name}`,
         description:   t.description,
         genre:         t.genre,
-        confidence:    parseFloat(Math.min(0.35 + score * 0.65, 1.0).toFixed(2)),
+        confidence,
         matchedArtist: false,
         matchedTags:   hits,
         artistTags:    tags.slice(0, 8),

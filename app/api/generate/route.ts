@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     const body   = await req.json();
     const prompt: string = body.prompt ?? "";
     const artist: string = body.artist ?? "";
-    const top_k: number  = Math.min(Number(body.top_k ?? 100), 200);
+    const top_k: number  = Math.min(Number(body.top_k ?? 500), 5000);
 
     if (!prompt && !artist) {
       return NextResponse.json({ error: "Provide an artist name" }, { status: 400 });
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ results: merged, sources });
+    return NextResponse.json({ results: merged.slice(0, top_k), sources });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
