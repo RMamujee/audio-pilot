@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     // 3. Generate sounds from external tags if we have them
     const effectiveTags = tags.length > 0 ? tags : [];
     const generatedResults = effectiveTags.length > 0
-      ? generateSounds(artist || prompt, effectiveTags, top_k)
+      ? generateSounds(artist || prompt, effectiveTags)
       : [];
 
     // 4. Merge: curated presets first, then generated (no name dupes)
