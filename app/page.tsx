@@ -353,6 +353,7 @@ export default function Home() {
   const [error,          setError]          = useState("");
   const [playingId,      setPlayingId]      = useState<string | null>(null);
   const [searchedArtist, setSearchedArtist] = useState("");
+  const [dataSources,    setDataSources]    = useState<string[]>([]);
 
   const audioCtxRef  = useRef<AudioContext | null>(null);
   const stopRef      = useRef<(() => void) | null>(null);
@@ -392,6 +393,7 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Something went wrong"); return; }
       setResults(data.results ?? []);
+      setDataSources(data.sources ?? []);
     } catch {
       setError("Failed to reach API");
     } finally {
@@ -415,7 +417,7 @@ export default function Home() {
             AUDIOPILOT
           </h1>
           <p style={{ color: "var(--muted)", fontSize: 16, maxWidth: 460, margin: "0 auto", lineHeight: 1.6 }}>
-            Search any artist and find every sound in their sonic palette — preview and copy synth parameters instantly.
+            Search any artist from millions in Last.fm, Spotify &amp; MusicBrainz — find every sound in their sonic palette and copy synth parameters instantly.
           </p>
         </header>
 
@@ -471,11 +473,19 @@ export default function Home() {
         {/* Results */}
         {results.length > 0 && (
           <>
-            <div style={{ marginBottom: 20 }}>
+            <div style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
               <p style={{ fontSize: 17, fontWeight: 700 }}>
-                {results.length} sound{results.length !== 1 ? "s" : ""} found for{" "}
+                {results.length} sound{results.length !== 1 ? "s" : ""} for{" "}
                 <span style={{ color: "var(--accent2)" }}>{searchedArtist}</span>
               </p>
+              {dataSources.length > 0 && (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>via</span>
+                  {dataSources.map(s => (
+                    <span key={s} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: "rgba(34,197,94,0.12)", color: "var(--green)", border: "1px solid rgba(34,197,94,0.25)", fontWeight: 700 }}>{s}</span>
+                  ))}
+                </div>
+              )}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(380px,1fr))", gap: 14 }}>
               {results.map((r, i) => (

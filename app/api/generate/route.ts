@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { matchPresets } from "@/lib/matcher";
+import { fetchArtistTags } from "@/lib/tag-fetcher";
+import { generateSounds } from "@/lib/sound-generator";
 
 export const runtime = "nodejs";
 
@@ -7,14 +9,13 @@ const HF_SPACE_URL = process.env.HF_SPACE_URL?.replace(/\/$/, "");
 
 function normalizeHFResult(r: Record<string, unknown>) {
   const p = (r.params ?? {}) as Record<string, unknown>;
-  const artistTags = Array.isArray(r.artist_tags) ? r.artist_tags as string[] : [];
   return {
     name:          String(r.name ?? ""),
     description:   String(r.description ?? r.matched_query ?? ""),
     genre:         String(r.genre ?? ""),
     artists:       Array.isArray(r.artists) ? r.artists as string[] : [],
     tags:          Array.isArray(r.tags) ? r.tags as string[] : [],
-    artistTags,
+    artistTags:    Array.isArray(r.artist_tags) ? r.artist_tags as string[] : [],
     confidence:    Math.min(Number(r.confidence ?? 0), 1.0),
     matchedArtist: Boolean(r.matchedArtist),
     matchedTags:   Array.isArray(r.matchedTags) ? r.matchedTags as string[] : [],
@@ -40,12 +41,13 @@ export async function POST(req: NextRequest) {
     const body   = await req.json();
     const prompt: string = body.prompt ?? "";
     const artist: string = body.artist ?? "";
-    const top_k: number  = Math.min(Number(body.top_k ?? 20), 50);
+    const top_k: number  = Math.min(Number(body.top_k ?? 25), 50);
 
     if (!prompt && !artist) {
       return NextResponse.json({ error: "Provide an artist name" }, { status: 400 });
     }
 
+    // ── Path A: HF Space (semantic embeddings + full preset DB) ──────────────
     if (HF_SPACE_URL) {
       try {
         const upstream = await fetch(`${HF_SPACE_URL}/generate`, {
@@ -59,29 +61,53 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ results: data.results.map(normalizeHFResult) });
         }
       } catch {
-        console.warn("HF Space unavailable, falling back to local matcher");
+        console.warn("HF Space unavailable, using local pipeline");
       }
     }
 
-    const results = matchPresets(prompt, artist, top_k);
-    if (results.length === 0) {
-      return NextResponse.json({ error: "No matching sounds found for this artist" }, { status: 404 });
+    // ── Path B: Local pipeline ───────────────────────────────────────────────
+    // 1. Fetch artist tags from Last.fm + Spotify + MusicBrainz in parallel
+    //    with local preset matching
+    const [{ tags, sources }, presetMatches] = await Promise.all([
+      artist ? fetchArtistTags(artist) : Promise.resolve({ tags: [], sources: [] }),
+      Promise.resolve(matchPresets(prompt, artist, 15)),
+    ]);
+
+    // 2. Map preset matches to response shape
+    const presetResults = presetMatches.map(r => ({
+      name:          r.preset.name,
+      description:   r.preset.description,
+      genre:         "",
+      confidence:    Math.min(r.score, 1.0),
+      matchedArtist: r.matchedArtist,
+      matchedTags:   r.matchedTags,
+      artistTags:    tags.slice(0, 8),
+      params:        r.preset.params,
+      artists:       r.preset.artists,
+      tags:          r.preset.tags,
+    }));
+
+    // 3. Generate sounds from external tags if we have them
+    const effectiveTags = tags.length > 0 ? tags : [];
+    const generatedResults = effectiveTags.length > 0
+      ? generateSounds(artist || prompt, effectiveTags, top_k)
+      : [];
+
+    // 4. Merge: curated presets first, then generated (no name dupes)
+    const seen = new Set(presetResults.map(r => r.name));
+    const merged = [
+      ...presetResults,
+      ...generatedResults.filter(r => !seen.has(r.name)),
+    ].slice(0, top_k);
+
+    if (merged.length === 0) {
+      return NextResponse.json(
+        { error: "No sounds found — try a different artist name" },
+        { status: 404 }
+      );
     }
 
-    return NextResponse.json({
-      results: results.map((r) => ({
-        name:          r.preset.name,
-        description:   r.preset.description,
-        genre:         "",
-        confidence:    Math.min(r.score, 1.0),
-        matchedArtist: r.matchedArtist,
-        matchedTags:   r.matchedTags,
-        artistTags:    [],
-        params:        r.preset.params,
-        artists:       r.preset.artists,
-        tags:          r.preset.tags,
-      })),
-    });
+    return NextResponse.json({ results: merged, sources });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
