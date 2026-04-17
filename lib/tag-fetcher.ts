@@ -58,6 +58,24 @@ async function fetchSpotify(artist: string): Promise<string[]> {
   } catch { return []; }
 }
 
+export async function fetchArtistImage(artist: string): Promise<string | null> {
+  const token = await getSpotifyToken();
+  if (!token) return null;
+  try {
+    const r = await fetch(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(artist)}&type=artist&limit=3`,
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(6_000) }
+    );
+    if (!r.ok) return null;
+    const d = await r.json() as { artists?: { items?: { name: string; images: { url: string; height: number }[] }[] } };
+    const items = d.artists?.items ?? [];
+    const item = items.find(i => i.name.toLowerCase() === artist.toLowerCase()) ?? items[0];
+    if (!item) return null;
+    const img = item.images.find(i => i.height >= 200 && i.height <= 500) ?? item.images[0];
+    return img?.url ?? null;
+  } catch { return null; }
+}
+
 // Extracts genre clues from MusicBrainz disambiguation strings like "American rapper"
 function parseDisambiguation(disambiguation: string): string[] {
   const lower = disambiguation.toLowerCase();

@@ -39,9 +39,10 @@ function normalizeHFResult(r: Record<string, unknown>) {
 export async function POST(req: NextRequest) {
   try {
     const body   = await req.json();
-    const prompt: string = body.prompt ?? "";
-    const artist: string = body.artist ?? "";
-    const top_k: number  = Math.min(Number(body.top_k ?? 500), 5000);
+    const prompt: string    = body.prompt ?? "";
+    const artist: string    = body.artist ?? "";
+    const top_k: number     = Math.min(Number(body.top_k ?? 500), 5000);
+    const manualTags: string[] = Array.isArray(body.manualTags) ? body.manualTags : [];
 
     if (!prompt && !artist) {
       return NextResponse.json({ error: "Provide an artist name" }, { status: 400 });
@@ -66,12 +67,13 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Path B: Local pipeline ───────────────────────────────────────────────
-    // 1. Fetch artist tags from Last.fm + Spotify + MusicBrainz in parallel
-    //    with local preset matching
-    const [{ tags, sources }, presetMatches] = await Promise.all([
-      artist ? fetchArtistTags(artist) : Promise.resolve({ tags: [], sources: [] }),
+    // 1. Fetch artist tags (skip if manual tags provided)
+    const [{ tags: fetchedTags, sources }, presetMatches] = await Promise.all([
+      (artist && manualTags.length === 0) ? fetchArtistTags(artist) : Promise.resolve({ tags: [] as string[], sources: [] as string[] }),
       Promise.resolve(matchPresets(prompt, artist, 50)),
     ]);
+
+    const tags = manualTags.length > 0 ? manualTags : fetchedTags;
 
     // 2. Map preset matches to response shape
     const presetResults = presetMatches.map(r => ({
@@ -87,10 +89,9 @@ export async function POST(req: NextRequest) {
       tags:          r.preset.tags,
     }));
 
-    // 3. Generate sounds from external tags if we have them
-    const effectiveTags = tags.length > 0 ? tags : [];
-    const generatedResults = effectiveTags.length > 0
-      ? generateSounds(artist || prompt, effectiveTags)
+    // 3. Generate sounds from tags
+    const generatedResults = tags.length > 0
+      ? generateSounds(artist || prompt, tags)
       : [];
 
     // 4. Merge: curated presets first, then generated (no name dupes)
