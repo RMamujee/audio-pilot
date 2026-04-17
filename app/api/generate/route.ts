@@ -40,13 +40,12 @@ export async function POST(req: NextRequest) {
     const body   = await req.json();
     const prompt: string = body.prompt ?? "";
     const artist: string = body.artist ?? "";
-    const top_k: number  = Math.min(Number(body.top_k ?? 4), 8);
+    const top_k: number  = Math.min(Number(body.top_k ?? 20), 50);
 
     if (!prompt && !artist) {
-      return NextResponse.json({ error: "Provide a prompt or artist name" }, { status: 400 });
+      return NextResponse.json({ error: "Provide an artist name" }, { status: 400 });
     }
 
-    // Path A: HF Space (sentence-transformers + MusicBrainz dynamic artist tags)
     if (HF_SPACE_URL) {
       try {
         const upstream = await fetch(`${HF_SPACE_URL}/generate`, {
@@ -64,24 +63,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Path B: local keyword matcher fallback
     const results = matchPresets(prompt, artist, top_k);
     if (results.length === 0) {
-      return NextResponse.json({ error: "No matching presets found" }, { status: 404 });
+      return NextResponse.json({ error: "No matching sounds found for this artist" }, { status: 404 });
     }
 
     return NextResponse.json({
       results: results.map((r) => ({
-        name:         r.preset.name,
-        description:  r.preset.description,
-        genre:        "",
-        confidence:   Math.min(r.score, 1.0),
+        name:          r.preset.name,
+        description:   r.preset.description,
+        genre:         "",
+        confidence:    Math.min(r.score, 1.0),
         matchedArtist: r.matchedArtist,
-        matchedTags:  r.matchedTags,
-        artistTags:   [],
-        params:       r.preset.params,
-        artists:      r.preset.artists,
-        tags:         r.preset.tags,
+        matchedTags:   r.matchedTags,
+        artistTags:    [],
+        params:        r.preset.params,
+        artists:       r.preset.artists,
+        tags:          r.preset.tags,
       })),
     });
   } catch {

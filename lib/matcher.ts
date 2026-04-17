@@ -21,9 +21,7 @@ function normalizeArtist(input: string): string {
 }
 
 function cosineSim(a: Map<string, number>, b: Map<string, number>): number {
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
+  let dot = 0, normA = 0, normB = 0;
   for (const [term, wA] of a) {
     const wB = b.get(term) ?? 0;
     dot += wA * wB;
@@ -44,32 +42,35 @@ function buildTagVector(tags: string[]): Map<string, number> {
   return vec;
 }
 
-export function matchPresets(
-  prompt: string,
-  artist: string,
-  topK = 4
-): MatchResult[] {
+export function matchPresets(prompt: string, artist: string, topK = 4): MatchResult[] {
   const normalizedArtist = artist.trim() ? normalizeArtist(artist) : "";
   const promptTokens = tokenize(prompt);
-  const queryVec = buildTagVector(promptTokens);
+
+  // When only artist is given, derive query from that artist's preset tags
+  // so stylistically similar sounds are also surfaced
+  let queryVec: Map<string, number>;
+  if (!prompt.trim() && normalizedArtist) {
+    const artistPresets = PRESETS.filter(p =>
+      p.artists.some(a => a.includes(normalizedArtist) || normalizedArtist.includes(a))
+    );
+    const derivedTags = artistPresets.flatMap(p => p.tags);
+    queryVec = buildTagVector(derivedTags.length > 0 ? derivedTags : [normalizedArtist]);
+  } else {
+    queryVec = buildTagVector(promptTokens);
+  }
 
   const results: MatchResult[] = PRESETS.map((preset) => {
     const presetVec = buildTagVector(preset.tags);
     let score = cosineSim(queryVec, presetVec);
 
-    // Artist match: big boost if the preset explicitly lists the artist
     const artistMatch =
       normalizedArtist !== "" &&
-      preset.artists.some(
-        (a) =>
-          a.includes(normalizedArtist) || normalizedArtist.includes(a)
-      );
+      preset.artists.some(a => a.includes(normalizedArtist) || normalizedArtist.includes(a));
     if (artistMatch) score += 0.6;
 
-    // Partial keyword boost — reward each tag word found in prompt
     const matchedTags: string[] = [];
     for (const tag of preset.tags) {
-      if (promptTokens.some((t) => tag.toLowerCase().includes(t) || t.includes(tag.toLowerCase()))) {
+      if (promptTokens.some(t => tag.toLowerCase().includes(t) || t.includes(tag.toLowerCase()))) {
         matchedTags.push(tag);
         score += 0.08;
       }
@@ -79,7 +80,7 @@ export function matchPresets(
   });
 
   return results
-    .filter((r) => r.score > 0)
+    .filter(r => r.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, topK);
 }

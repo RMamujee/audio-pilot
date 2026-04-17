@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AudioPilot — AI Sound Finder",
-  description: "AI-powered sound finder — match any artist or vibe to synth parameters",
+  title: "AudioPilot — Artist Sound Finder",
+  description: "Search any artist and find every sound in their sonic palette. Preview and copy synth parameters instantly.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
