@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     const body   = await req.json();
     const prompt: string = body.prompt ?? "";
     const artist: string = body.artist ?? "";
-    const top_k: number  = Math.min(Number(body.top_k ?? 25), 50);
+    const top_k: number  = Math.min(Number(body.top_k ?? 100), 200);
 
     if (!prompt && !artist) {
       return NextResponse.json({ error: "Provide an artist name" }, { status: 400 });
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
     //    with local preset matching
     const [{ tags, sources }, presetMatches] = await Promise.all([
       artist ? fetchArtistTags(artist) : Promise.resolve({ tags: [], sources: [] }),
-      Promise.resolve(matchPresets(prompt, artist, 15)),
+      Promise.resolve(matchPresets(prompt, artist, 50)),
     ]);
 
     // 2. Map preset matches to response shape
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
     const merged = [
       ...presetResults,
       ...generatedResults.filter(r => !seen.has(r.name)),
-    ].slice(0, top_k);
+    ];
 
     if (merged.length === 0) {
       return NextResponse.json(

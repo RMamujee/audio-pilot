@@ -577,7 +577,7 @@ function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 export function generateSounds(
   artistName: string,
   artistTags: string[],
-  topK = 25
+  topK = 200
 ): GeneratedSound[] {
   const tags = artistTags.map(t => t.toLowerCase());
   const rng  = seededRng(artistName.toLowerCase());
@@ -597,7 +597,7 @@ export function generateSounds(
 
   const sample = (range: Range) => lerp(range.min, range.max, rng());
 
-  return pool.slice(0, topK).map(({ t, score, hits }) => {
+  return pool.map(({ t, score, hits }) => {
     const oscType = t.oscTypes[Math.floor(rng() * t.oscTypes.length)];
     return {
       name:          t.name,

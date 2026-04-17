@@ -388,7 +388,7 @@ export default function Home() {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ artist: a, top_k: 30 }),
+        body: JSON.stringify({ artist: a, top_k: 100 }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Something went wrong"); return; }
