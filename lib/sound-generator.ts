@@ -542,6 +542,8 @@ export function generateSounds(artistName: string, artistTags: string[]): Genera
     const oscType = t.oscTypes[Math.floor(rng() * t.oscTypes.length)];
     const confidence = parseFloat(Math.min(0.35 + score * 0.65, 1.0).toFixed(2));
     for (const v of VARIATIONS) {
+      const pRng = seededRng(`${artistName.toLowerCase()}|${t.name}|${v.name}`);
+      const w = (base: number) => Math.max(0, Math.min(1, base + (pRng() - 0.5) * 0.2));
       const branded = !!artistName;
       const displayName = branded ? `${artistName} \u2014 ${t.name} \u00B7 ${v.name}` : `${t.name} \u2014 ${v.name}`;
       sounds.push({
@@ -553,18 +555,18 @@ export function generateSounds(artistName: string, artistTags: string[]): Genera
         matchedTags:   hits,
         artistTags:    tags.slice(0, 8),
         params: {
-          cutoff:     Math.round(at(t.cutoff, v.c)),
-          resonance:  parseFloat(at(t.resonance, v.r).toFixed(2)),
-          attack:     parseFloat(at(t.attack, v.a).toFixed(3)),
-          decay:      parseFloat(at(t.decay, v.d).toFixed(3)),
-          sustain:    parseFloat(at(t.sustain, v.s).toFixed(2)),
-          release:    parseFloat(at(t.release, v.rel).toFixed(2)),
-          reverbSize: parseFloat(at(t.reverbSize, v.rv).toFixed(2)),
-          reverbWet:  parseFloat(at(t.reverbWet, v.rv).toFixed(2)),
+          cutoff:     Math.round(at(t.cutoff, w(v.c))),
+          resonance:  parseFloat(at(t.resonance, w(v.r)).toFixed(2)),
+          attack:     parseFloat(at(t.attack, w(v.a)).toFixed(3)),
+          decay:      parseFloat(at(t.decay, w(v.d)).toFixed(3)),
+          sustain:    parseFloat(at(t.sustain, w(v.s)).toFixed(2)),
+          release:    parseFloat(at(t.release, w(v.rel)).toFixed(2)),
+          reverbSize: parseFloat(at(t.reverbSize, w(v.rv)).toFixed(2)),
+          reverbWet:  parseFloat(at(t.reverbWet, w(v.rv)).toFixed(2)),
           oscType,
-          drive:      parseFloat(at(t.drive, v.dr).toFixed(2)),
-          chorus:     parseFloat(at(t.chorus, v.ch).toFixed(2)),
-          delayMix:   parseFloat(at(t.delayMix, v.dl).toFixed(2)),
+          drive:      parseFloat(at(t.drive, w(v.dr)).toFixed(2)),
+          chorus:     parseFloat(at(t.chorus, w(v.ch)).toFixed(2)),
+          delayMix:   parseFloat(at(t.delayMix, w(v.dl)).toFixed(2)),
         },
         artists: [],
         tags: t.matchTags.slice(0, 5),
