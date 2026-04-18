@@ -48,6 +48,32 @@ function useSearchHistory() {
   return { history, add, clear };
 }
 
+// ─── Favorites ────────────────────────────────────────────────────────────────
+
+const FAVORITES_KEY = "audiopilot_favorites";
+
+function useFavorites() {
+  const [favorites, setFavorites] = useState<SoundResult[]>([]);
+  useEffect(() => {
+    try { setFavorites(JSON.parse(localStorage.getItem(FAVORITES_KEY) ?? "[]")); } catch { /* ignore */ }
+  }, []);
+  const toggle = useCallback((result: SoundResult) => {
+    setFavorites(prev => {
+      const next = prev.some(f => f.name === result.name)
+        ? prev.filter(f => f.name !== result.name)
+        : [result, ...prev];
+      try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+  const isFav = useCallback((name: string, favs: SoundResult[]) => favs.some(f => f.name === name), []);
+  const clearAll = useCallback(() => {
+    setFavorites([]);
+    try { localStorage.removeItem(FAVORITES_KEY); } catch { /* ignore */ }
+  }, []);
+  return { favorites, toggle, isFav, clearAll };
+}
+
 // ─── Shareable URL helpers ────────────────────────────────────────────────────
 
 function buildShareURL(artist: string, filters: {
@@ -171,7 +197,13 @@ function makeDriveCurve(amount: number): Float32Array<ArrayBuffer> {
 }
 
 function baseFreqFor(p: SynthParams): number {
-  return p.cutoff < 400 ? 55 : p.cutoff < 1500 ? 110 : p.attack > 0.5 ? 110 : 220;
+  // Log-scale map cutoff → E2-E5 (82-659 Hz): audible, varied pitches per sound
+  const logMin = Math.log2(80);
+  const logMax = Math.log2(16000);
+  const norm = (Math.log2(Math.max(p.cutoff, 80)) - logMin) / (logMax - logMin);
+  let semi = norm * 36; // 36 semitones = 3 octaves above E2
+  semi += p.drive * 3 - (p.attack > 0.5 ? 2 : 0);
+  return 82.41 * Math.pow(2, Math.max(0, Math.min(36, Math.round(semi))) / 12);
 }
 
 function soundDuration(p: SynthParams, startOffset = 0): number {
@@ -227,15 +259,24 @@ function playSound(ctx: AudioContext, p: SynthParams, freqOverride?: number, sta
     makeOsc(baseFreq,  sp, p.chorus * 0.6);
     makeOsc(baseFreq * 2, -sp * 0.5, p.chorus * 0.3);
   }
+  // Master gain: routes everything through one node so stop() kills reverb/delay tails
+  const master = ctx.createGain();
+  master.connect(ctx.destination);
+
   filter.connect(shaper); shaper.connect(env);
   env.connect(dryGain); env.connect(reverbGain); env.connect(delayGain);
-  dryGain.connect(ctx.destination);
-  reverbGain.connect(reverb); reverb.connect(ctx.destination);
-  delayGain.connect(delay); delay.connect(ctx.destination);
+  dryGain.connect(master);
+  reverbGain.connect(reverb); reverb.connect(master);
+  delayGain.connect(delay); delay.connect(master);
 
-  return () => oscillators.forEach(o => { try { o.stop(); } catch { /* ok */ } });
+  return () => {
+    const t = ctx.currentTime;
+    master.gain.setValueAtTime(1, t);
+    master.gain.linearRampToValueAtTime(0, t + 0.05);
+    oscillators.forEach(o => { try { o.stop(t + 0.06); } catch { /* ok */ } });
+    setTimeout(() => { try { master.disconnect(); } catch { /* ok */ } }, 200);
+  };
 }
-
 // Play root → major 3rd → perfect 5th as a rising arpeggio
 function playArp(ctx: AudioContext, p: SynthParams): { stop: () => void; duration: number } {
   const root    = baseFreqFor(p);
@@ -248,73 +289,118 @@ function playArp(ctx: AudioContext, p: SynthParams): { stop: () => void; duratio
 
 // ─── Vital (.vital) preset export ────────────────────────────────────────────
 
-function exportToVital(result: SoundResult): void {
+function buildVitalPreset(result: SoundResult) {
   const p = result.params;
   const waveFrame  = p.oscType === "sine" ? 0 : p.oscType === "saw" ? 127 : 255;
   const cutoffNote = Math.max(0, Math.min(128, 69 + 12 * Math.log2(Math.max(20, p.cutoff) / 440)));
   const resNorm    = Math.max(0, Math.min(1, (p.resonance - 0.1) / 9.9));
-
-  const preset = {
-    synth_version: "1.5.5",
-    preset_style: "",
-    preset_name: result.name,
-    author: "AudioPilot",
+  return {
+    synth_version: "1.5.5", preset_style: "",
+    preset_name: result.name, author: "AudioPilot",
     comments: `${result.description} · ${result.genre}`,
-    groups: [],
-    modulations: [],
+    groups: [], modulations: [],
     settings: {
       beats_per_minute: 120.0,
-      // Oscillator
       osc_1_on: 1.0, osc_1_level: 1.0, osc_1_pan: 0.0,
       osc_1_tune: 0.0, osc_1_transpose: 0.0, osc_1_wave_frame: waveFrame,
       osc_1_unison_voices: p.chorus > 0.3 ? 3.0 : 1.0,
       osc_1_unison_detune: p.chorus > 0.3 ? p.chorus * 20 : 0.0,
-      osc_1_unison_blend: 0.8,
-      osc_2_on: 0.0, osc_3_on: 0.0,
-      // Filter
+      osc_1_unison_blend: 0.8, osc_2_on: 0.0, osc_3_on: 0.0,
       filter_1_on: 1.0, filter_1_cutoff: cutoffNote,
       filter_1_resonance: resNorm, filter_1_drive: 0.0,
       filter_1_model: 0.0, filter_1_style: 0.0, filter_2_on: 0.0,
-      // Envelope
       env_1_attack: p.attack, env_1_attack_power: -2.0,
       env_1_decay: p.decay, env_1_decay_power: -2.0,
       env_1_sustain: p.sustain,
       env_1_release: p.release, env_1_release_power: -2.0,
       env_1_velocity_track: 1.0,
-      // Reverb
       reverb_on: p.reverbWet > 0.02 ? 1.0 : 0.0,
       reverb_dry_wet: p.reverbWet, reverb_size: p.reverbSize,
       reverb_decay_time: 1.0 + p.reverbSize * 3,
       reverb_high_shelf_cutoff: 9.0, reverb_high_shelf_gain: 0.0,
       reverb_low_shelf_cutoff: 40.0, reverb_low_shelf_gain: 0.0,
       reverb_pre_high_cutoff: 0.0, reverb_pre_low_cutoff: 0.0,
-      // Chorus
       chorus_on: p.chorus > 0.05 ? 1.0 : 0.0,
       chorus_dry_wet: p.chorus, chorus_voices: p.chorus > 0.3 ? 4.0 : 2.0,
       chorus_frequency: 0.5, chorus_mod_depth: p.chorus * 0.7,
       chorus_feedback: 0.0, chorus_cutoff: 1.0, chorus_damping: 0.9,
       chorus_delay_1: -0.8, chorus_delay_2: -0.8,
-      // Distortion
       distortion_on: p.drive > 0.05 ? 1.0 : 0.0,
       distortion_mix: p.drive, distortion_drive: p.drive * 20, distortion_type: 0.0,
-      // Delay
       delay_on: p.delayMix > 0.05 ? 1.0 : 0.0,
       delay_dry_wet: p.delayMix, delay_feedback: 0.4,
       delay_frequency: 2.0, delay_sync: 1.0, delay_tempo: 9.0,
       delay_style: 0.0, delay_filter_cutoff: 60.0, delay_filter_spread: 0.0,
-      // Master
       volume: 1.0,
     },
   };
+}
 
-  const blob = new Blob([JSON.stringify(preset, null, 2)], { type: "application/json" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
+function exportToVital(result: SoundResult): void {
+  const blob = new Blob([JSON.stringify(buildVitalPreset(result), null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
   a.download = `${result.name.replace(/[^a-z0-9\-_]/gi, "_")}.vital`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ─── ZIP builder + bulk export ────────────────────────────────────────────────
+
+function crc32(buf: Uint8Array): number {
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) { let c = i; for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[i] = c; }
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = t[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function buildZip(files: { name: string; data: Uint8Array }[]): Uint8Array {
+  const enc = new TextEncoder();
+  const locals: Uint8Array[] = [], bodies: Uint8Array[] = [], centrals: Uint8Array[] = [];
+  let off = 0;
+  for (const file of files) {
+    const nb = enc.encode(file.name), sz = file.data.length, crc = crc32(file.data);
+    const lh = new Uint8Array(30 + nb.length); const lv = new DataView(lh.buffer);
+    lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true);
+    lv.setUint32(14, crc, true); lv.setUint32(18, sz, true); lv.setUint32(22, sz, true);
+    lv.setUint16(26, nb.length, true); lh.set(nb, 30);
+    const ch = new Uint8Array(46 + nb.length); const cv = new DataView(ch.buffer);
+    cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
+    cv.setUint32(16, crc, true); cv.setUint32(20, sz, true); cv.setUint32(24, sz, true);
+    cv.setUint16(28, nb.length, true); cv.setUint32(42, off, true); ch.set(nb, 46);
+    locals.push(lh); bodies.push(file.data); centrals.push(ch);
+    off += lh.length + sz;
+  }
+  const centralOff = off;
+  const centralSz = centrals.reduce((s, c) => s + c.length, 0);
+  const eocd = new Uint8Array(22); const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true); ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true); ev.setUint32(12, centralSz, true);
+  ev.setUint32(16, centralOff, true);
+  const parts = [...locals.flatMap((l, i) => [l, bodies[i]]), ...centrals, eocd];
+  const out = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
+  let pos = 0; for (const p of parts) { out.set(p, pos); pos += p.length; }
+  return out;
+}
+
+function exportBulkVital(results: SoundResult[], label: string): void {
+  const enc = new TextEncoder();
+  const seen = new Map<string, number>();
+  const files = results.map(r => {
+    let base = r.name.replace(/[^a-z0-9\-_]/gi, "_").slice(0, 60);
+    const n = (seen.get(base) ?? 0) + 1; seen.set(base, n);
+    if (n > 1) base += `_${n}`;
+    return { name: `${base}.vital`, data: enc.encode(JSON.stringify(buildVitalPreset(r), null, 2)) };
+  });
+  const zip = buildZip(files);
+  const blob = new Blob([zip], { type: "application/zip" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `audiopilot_${label.replace(/[^a-z0-9]/gi, "_").slice(0, 40)}.zip`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
 
