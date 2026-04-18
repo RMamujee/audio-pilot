@@ -32,7 +32,10 @@ const HISTORY_KEY = "audiopilot_history";
 function useSearchHistory() {
   const [history, setHistory] = useState<string[]>([]);
   useEffect(() => {
-    try { setHistory(JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]")); } catch { /* ignore */ }
+    try {
+      const raw = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]");
+      setHistory(Array.isArray(raw) ? raw.filter((x: unknown) => typeof x === "string").slice(0, 10) : []);
+    } catch { /* ignore */ }
   }, []);
   const add = useCallback((artist: string) => {
     setHistory(prev => {
@@ -55,7 +58,10 @@ const FAVORITES_KEY = "audiopilot_favorites";
 function useFavorites() {
   const [favorites, setFavorites] = useState<SoundResult[]>([]);
   useEffect(() => {
-    try { setFavorites(JSON.parse(localStorage.getItem(FAVORITES_KEY) ?? "[]")); } catch { /* ignore */ }
+    try {
+      const raw = JSON.parse(localStorage.getItem(FAVORITES_KEY) ?? "[]");
+      setFavorites(Array.isArray(raw) ? raw.filter((x: unknown) => x !== null && typeof x === "object" && typeof (x as Record<string, unknown>).name === "string") : []);
+    } catch { /* ignore */ }
   }, []);
   const toggle = useCallback((result: SoundResult) => {
     setFavorites(prev => {
@@ -280,7 +286,12 @@ function playSound(ctx: AudioContext, p: SynthParams, freqOverride?: number, sta
     master.gain.setValueAtTime(1, t);
     master.gain.linearRampToValueAtTime(0, t + 0.05);
     oscillators.forEach(o => { try { o.stop(t + 0.06); } catch { /* ok */ } });
-    setTimeout(() => { try { master.disconnect(); } catch { /* ok */ } }, 200);
+    setTimeout(() => {
+      try { master.disconnect(); } catch { /* ok */ }
+      try { filter.disconnect(); shaper.disconnect(); env.disconnect(); } catch { /* ok */ }
+      try { dryGain.disconnect(); reverbGain.disconnect(); reverb.disconnect(); } catch { /* ok */ }
+      try { delayGain.disconnect(); delay.disconnect(); delayFb.disconnect(); } catch { /* ok */ }
+    }, 200);
   };
 }
 // Play root → major 3rd → perfect 5th as a rising arpeggio
@@ -722,6 +733,10 @@ function ArtistInput({ value, onChange, onSearch }: {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  useEffect(() => {
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, []);
+
   const lookup = (q: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (q.length < 2) { setSuggestions([]); setOpen(false); return; }
@@ -1111,6 +1126,16 @@ export default function Home() {
   const stopRef      = useRef<(() => void) | null>(null);
   const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  useEffect(() => {
+    return () => {
+      stopRef.current?.();
+      if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+      if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
+        audioCtxRef.current.close();
+      }
+    };
+  }, []);
+
   const stopCurrent = useCallback(() => {
     stopRef.current?.(); stopRef.current = null;
     if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
@@ -1320,7 +1345,7 @@ export default function Home() {
             {showFavorites && (
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill,minmax(360px,1fr))", gap: 12 }}>
                 {favorites.map((r, i) => (
-                  <SoundCard key={r.name} result={r} index={i}
+                  <SoundCard key={`fav-${r.name}-${i}`} result={r} index={i}
                     isPlaying={playingId === r.name}
                     isFav={true}
                     onFav={() => toggleFav(r)}
@@ -1468,7 +1493,7 @@ export default function Home() {
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill,minmax(360px,1fr))", gap: 12 }}>
                 {filteredResults.slice(0, visibleCount).map((r, i) => (
                   <SoundCard
-                    key={r.name} result={r} index={i}
+                    key={`${r.name}-${i}`} result={r} index={i}
                     isPlaying={playingId === r.name}
                     isFav={isFav(r.name, favorites)}
                     onFav={() => toggleFav(r)}

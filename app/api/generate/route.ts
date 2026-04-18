@@ -5,33 +5,41 @@ import { generateSounds } from "@/lib/sound-generator";
 
 export const runtime = "nodejs";
 
-const HF_SPACE_URL = process.env.HF_SPACE_URL?.replace(/\/$/, "");
+const _rawHFURL = process.env.HF_SPACE_URL?.replace(/\/$/, "");
+const HF_SPACE_URL = _rawHFURL?.startsWith("https://") ? _rawHFURL : undefined;
+
+function clamp(val: unknown, min: number, max: number, def: number): number {
+  const n = Number(val ?? def);
+  return isFinite(n) ? Math.max(min, Math.min(max, n)) : def;
+}
 
 function normalizeHFResult(r: Record<string, unknown>) {
   const p = (r.params ?? {}) as Record<string, unknown>;
+  const VALID_OSC = new Set(["sine", "saw", "square"]);
+  const oscType = String(p.osc_type ?? p.oscType ?? "saw");
   return {
-    name:          String(r.name ?? ""),
-    description:   String(r.description ?? r.matched_query ?? ""),
-    genre:         String(r.genre ?? ""),
-    artists:       Array.isArray(r.artists) ? r.artists as string[] : [],
-    tags:          Array.isArray(r.tags) ? r.tags as string[] : [],
-    artistTags:    Array.isArray(r.artist_tags) ? r.artist_tags as string[] : [],
-    confidence:    Math.min(Number(r.confidence ?? 0), 1.0),
+    name:          String(r.name ?? "").slice(0, 200),
+    description:   String(r.description ?? r.matched_query ?? "").slice(0, 500),
+    genre:         String(r.genre ?? "").slice(0, 100),
+    artists:       Array.isArray(r.artists) ? (r.artists as unknown[]).filter(x => typeof x === "string").slice(0, 20) as string[] : [],
+    tags:          Array.isArray(r.tags) ? (r.tags as unknown[]).filter(x => typeof x === "string").slice(0, 30) as string[] : [],
+    artistTags:    Array.isArray(r.artist_tags) ? (r.artist_tags as unknown[]).filter(x => typeof x === "string").slice(0, 20) as string[] : [],
+    confidence:    clamp(r.confidence, 0, 1, 0),
     matchedArtist: Boolean(r.matchedArtist),
-    matchedTags:   Array.isArray(r.matchedTags) ? r.matchedTags as string[] : [],
+    matchedTags:   Array.isArray(r.matchedTags) ? (r.matchedTags as unknown[]).filter(x => typeof x === "string").slice(0, 20) as string[] : [],
     params: {
-      cutoff:     Number(p.cutoff     ?? 8000),
-      resonance:  Number(p.resonance  ?? 0.7),
-      attack:     Number(p.attack     ?? 0.01),
-      decay:      Number(p.decay      ?? 0.3),
-      sustain:    Number(p.sustain    ?? 0.7),
-      release:    Number(p.release    ?? 0.5),
-      reverbSize: Number(p.reverb_size ?? p.reverbSize ?? 0.3),
-      reverbWet:  Number(p.reverb_wet  ?? p.reverbWet  ?? 0.1),
-      oscType:    String(p.osc_type    ?? p.oscType    ?? "saw"),
-      drive:      Number(p.drive      ?? 0),
-      chorus:     Number(p.chorus     ?? 0),
-      delayMix:   Number(p.delay_mix  ?? p.delayMix   ?? 0),
+      cutoff:     clamp(p.cutoff,     20,    20000, 8000),
+      resonance:  clamp(p.resonance,  0.1,   10,    0.7),
+      attack:     clamp(p.attack,     0,     5,     0.01),
+      decay:      clamp(p.decay,      0,     5,     0.3),
+      sustain:    clamp(p.sustain,    0,     1,     0.7),
+      release:    clamp(p.release,    0,     8,     0.5),
+      reverbSize: clamp(p.reverb_size ?? p.reverbSize, 0, 1, 0.3),
+      reverbWet:  clamp(p.reverb_wet  ?? p.reverbWet,  0, 1, 0.1),
+      oscType:    VALID_OSC.has(oscType) ? oscType : "saw",
+      drive:      clamp(p.drive,      0,     1,     0),
+      chorus:     clamp(p.chorus,     0,     1,     0),
+      delayMix:   clamp(p.delay_mix   ?? p.delayMix,   0, 1, 0),
     },
   };
 }
@@ -39,10 +47,12 @@ function normalizeHFResult(r: Record<string, unknown>) {
 export async function POST(req: NextRequest) {
   try {
     const body   = await req.json();
-    const prompt: string    = body.prompt ?? "";
-    const artist: string    = body.artist ?? "";
-    const top_k: number     = Math.min(Number(body.top_k ?? 500), 5000);
-    const manualTags: string[] = Array.isArray(body.manualTags) ? body.manualTags : [];
+    const prompt: string    = String(body.prompt ?? "").slice(0, 500);
+    const artist: string    = String(body.artist ?? "").slice(0, 200);
+    const top_k: number     = Math.min(Math.max(1, Number(body.top_k ?? 500) || 500), 5000);
+    const manualTags: string[] = Array.isArray(body.manualTags)
+      ? (body.manualTags as unknown[]).filter(t => typeof t === "string").map(t => (t as string).slice(0, 100)).slice(0, 50)
+      : [];
 
     if (!prompt && !artist) {
       return NextResponse.json({ error: "Provide an artist name" }, { status: 400 });
