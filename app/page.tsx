@@ -197,13 +197,19 @@ function makeDriveCurve(amount: number): Float32Array<ArrayBuffer> {
 }
 
 function baseFreqFor(p: SynthParams): number {
-  // Log-scale map cutoff → E2-E5 (82-659 Hz): audible, varied pitches per sound
-  const logMin = Math.log2(80);
-  const logMax = Math.log2(16000);
-  const norm = (Math.log2(Math.max(p.cutoff, 80)) - logMin) / (logMax - logMin);
-  let semi = norm * 36; // 36 semitones = 3 octaves above E2
-  semi += p.drive * 3 - (p.attack > 0.5 ? 2 : 0);
-  return 82.41 * Math.pow(2, Math.max(0, Math.min(36, Math.round(semi))) / 12);
+  // Hash all params so every distinct sound gets a distinct pitch
+  const h = Math.abs(
+    ((p.cutoff    * 0.01) | 0) * 31 +
+    ((p.resonance * 100)  | 0) * 17 +
+    ((p.attack    * 1000) | 0) * 13 +
+    ((p.decay     * 1000) | 0) * 7  +
+    ((p.drive     * 1000) | 0) * 11 +
+    ((p.chorus    * 1000) | 0) * 5  +
+    ((p.delayMix  * 1000) | 0) * 3
+  );
+  // Sine stays in bass register (A2-A4), saw/square span A2-A5
+  const top = p.oscType === "sine" ? 25 : 37;
+  return 110 * Math.pow(2, (h % top) / 12);
 }
 
 function soundDuration(p: SynthParams, startOffset = 0): number {
@@ -551,14 +557,14 @@ function SoundCard({ result, index, isPlaying, onPlay, onPlayArp, onStop, onVary
             </button>
           ) : (
             <div style={{ display: "flex", gap: 4 }}>
-              <button onClick={onPlay}
-                style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, background: "linear-gradient(135deg,var(--accent),var(--accent2))", border: "none", color: "#fff", letterSpacing: "0.03em" }}>
-                ▶ Note
-              </button>
               <button onClick={onPlayArp}
-                style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--accent2)", letterSpacing: "0.03em" }}
+                style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, background: "linear-gradient(135deg,var(--accent),var(--accent2))", border: "none", color: "#fff", letterSpacing: "0.03em" }}
                 title="Preview as rising chord arpeggio">
                 ♫ Arp
+              </button>
+              <button onClick={onPlay}
+                style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--accent2)", letterSpacing: "0.03em" }}>
+                ▶ Note
               </button>
             </div>
           )}
