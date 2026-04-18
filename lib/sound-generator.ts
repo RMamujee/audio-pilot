@@ -509,6 +509,57 @@ function seededRng(seed: string) {
 }
 
 function at(range: Range, pos: number) { return range.min + (range.max - range.min) * pos; }
+function clamp01(v: number) { return Math.max(0, Math.min(1, v)); }
+
+// ─── Artist sonic profile ─────────────────────────────────────────────────────
+// Five independent axes derived from the artist's tags + seeded RNG.
+// These axes are then used to pull every synth parameter toward the artist's
+// actual sonic character — not just a ±10% wobble on generic presets.
+
+interface ArtistProfile {
+  darkness:     number; // 0 = bright/airy,   1 = dark/heavy
+  aggression:   number; // 0 = gentle/soft,    1 = driven/aggressive
+  spaciousness: number; // 0 = dry/tight,      1 = ambient/spacious
+  warmth:       number; // 0 = cold/digital,   1 = warm/organic
+  rhythmic:     number; // 0 = drone/ambient,  1 = punchy/percussive
+}
+
+function buildArtistProfile(artistName: string, tags: string[]): ArtistProfile {
+  const rng = seededRng(`profile|${artistName.toLowerCase()}`);
+  const has = (...terms: string[]) =>
+    terms.some(term => tags.some(t => t.includes(term) || term.includes(t)));
+
+  // Each axis: strong tag match → locked into a range, otherwise fully RNG-driven
+  // so artists with no matching tags still each get a unique, stable personality
+  const resolve = (high: boolean, low: boolean): number => {
+    if (high) return clamp01(0.58 + (rng() - 0.5) * 0.28);
+    if (low)  return clamp01(0.12 + (rng() - 0.5) * 0.20);
+    return rng();
+  };
+
+  return {
+    darkness: resolve(
+      has('dark','doom','ominous','goth','industrial','phonk','grime','darksynth','occult','horror','sinister','evil','black metal','death metal'),
+      has('bright','happy','euphoric','bubblegum','sunshine','uplifting','cheerful','pop punk','candy')
+    ),
+    aggression: resolve(
+      has('metal','hardcore','noise','aggressive','hard techno','gabber','darksynth','thrash','grindcore','power electronics','harsh','brutal'),
+      has('ambient','meditation','new age','gentle','soft','lullaby','calm','peaceful','healing','relaxation')
+    ),
+    spaciousness: resolve(
+      has('ambient','shoegaze','ethereal','cinematic','dream','vaporwave','drone','shimmer','post-rock','reverb','hauntology','new age','atmospheric'),
+      has('trap','minimal','punchy','dry','percussive','staccato','tight','bounce','dembow')
+    ),
+    warmth: resolve(
+      has('jazz','soul','neo-soul','r&b','gospel','funk','organic','warm','blues','lofi','lo-fi','acoustic','folk'),
+      has('industrial','cold','clinical','digital','glitch','harsh','cyber','machine','electro-industrial')
+    ),
+    rhythmic: resolve(
+      has('trap','techno','dnb','drum and bass','house','breakbeat','jungle','dembow','bounce','4x4','drill','club','footwork','juke'),
+      has('ambient','drone','new age','shoegaze','ethereal','shimmer','meditation','spoken word')
+    ),
+  };
+}
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
@@ -519,18 +570,17 @@ const FALLBACK_TAG_POOL = [
 ];
 
 export function generateSounds(artistName: string, artistTags: string[]): GeneratedSound[] {
-  const rng  = seededRng(artistName.toLowerCase());
+  const rng = seededRng(artistName.toLowerCase());
 
-  // When no tags available, derive pseudo-genre fingerprint from artist name
-  // so different unknown artists get different template orderings
   let resolvedTags = artistTags.map(t => t.toLowerCase());
   if (resolvedTags.length === 0 && artistName) {
     const shuffled = [...FALLBACK_TAG_POOL].sort(() => rng() - 0.5);
     resolvedTags = shuffled.slice(0, 6);
   }
   const tags = resolvedTags;
+  const profile = buildArtistProfile(artistName, tags);
 
-  // Score every template against the artist's tags — use ALL templates, sorted by relevance
+  // Score every template against the artist's tags
   const pool = TEMPLATES.map(t => {
     const hits = t.matchTags.filter(mt => tags.some(at2 => at2.includes(mt) || mt.includes(at2)));
     return { t, score: hits.length / Math.max(t.matchTags.length, 1), hits };
@@ -539,13 +589,47 @@ export function generateSounds(artistName: string, artistTags: string[]): Genera
   const sounds: GeneratedSound[] = [];
 
   for (const { t, score, hits } of pool) {
-    const oscType = t.oscTypes[Math.floor(rng() * t.oscTypes.length)];
     const confidence = parseFloat(Math.min(0.35 + score * 0.65, 1.0).toFixed(2));
+
     for (const v of VARIATIONS) {
+      // Per-sound seeded RNG — guarantees every artist×template×variation is unique
       const pRng = seededRng(`${artistName.toLowerCase()}|${t.name}|${v.name}`);
-      const w = (base: number) => Math.max(0, Math.min(1, base + (pRng() - 0.5) * 0.2));
-      const branded = !!artistName;
-      const displayName = branded ? `${artistName} \u2014 ${t.name} \u00B7 ${v.name}` : `${t.name} \u2014 ${v.name}`;
+
+      // mod(): shift variation baseline toward artist's profile, with small per-sound noise.
+      // profilePull is a signed value in the -1..1 range representing how far the profile
+      // pushes in each direction.  pullStrength controls maximum shift (up to ±0.4 of range).
+      const mod = (base: number, profilePull: number, pullStrength = 0.35): number =>
+        clamp01(base + profilePull * pullStrength + (pRng() - 0.5) * 0.12);
+
+      // Each parameter is pulled by one or more profile axes:
+      // cutoff:    darkness → lower,  rhythmic → slightly higher
+      const wC   = mod(v.c,   -profile.darkness * 0.8 + profile.rhythmic * 0.25);
+      // resonance: aggression → higher, warmth → lower
+      const wR   = mod(v.r,    profile.aggression * 0.7 - profile.warmth * 0.3,  0.3);
+      // attack:    spaciousness → longer, rhythmic → shorter
+      const wA   = mod(v.a,    profile.spaciousness * 0.6 - profile.rhythmic * 0.45, 0.38);
+      // decay:     spaciousness → longer
+      const wD   = mod(v.d,    profile.spaciousness * 0.4, 0.28);
+      // sustain:   warmth → higher, rhythmic → lower (shorter decay envelope)
+      const wS   = mod(v.s,    profile.warmth * 0.3 - profile.rhythmic * 0.25, 0.25);
+      // release:   spaciousness → longer, rhythmic → tighter
+      const wRel = mod(v.rel,  profile.spaciousness * 0.65 - profile.rhythmic * 0.35, 0.4);
+      // reverb:    spaciousness + darkness both add depth
+      const wRv  = mod(v.rv,   profile.spaciousness * 0.55 + profile.darkness * 0.2,  0.3);
+      // drive:     aggression + darkness → more driven, warmth → cleaner
+      const wDr  = mod(v.dr,   profile.aggression * 0.55 + profile.darkness * 0.2 - profile.warmth * 0.2, 0.35);
+      // chorus:    warmth + spaciousness → wider stereo
+      const wCh  = mod(v.ch,   profile.warmth * 0.35 + profile.spaciousness * 0.2, 0.28);
+      // delay:     spaciousness → more delay tails
+      const wDl  = mod(v.dl,   profile.spaciousness * 0.4, 0.28);
+
+      // oscType selected per-sound (not per-template) using per-sound RNG
+      const oscType = t.oscTypes[Math.floor(pRng() * t.oscTypes.length)];
+
+      const displayName = artistName
+        ? `${artistName} \u2014 ${t.name} \u00B7 ${v.name}`
+        : `${t.name} \u2014 ${v.name}`;
+
       sounds.push({
         name:          displayName,
         description:   t.description,
@@ -555,18 +639,18 @@ export function generateSounds(artistName: string, artistTags: string[]): Genera
         matchedTags:   hits,
         artistTags:    tags.slice(0, 8),
         params: {
-          cutoff:     Math.round(at(t.cutoff, w(v.c))),
-          resonance:  parseFloat(at(t.resonance, w(v.r)).toFixed(2)),
-          attack:     parseFloat(at(t.attack, w(v.a)).toFixed(3)),
-          decay:      parseFloat(at(t.decay, w(v.d)).toFixed(3)),
-          sustain:    parseFloat(at(t.sustain, w(v.s)).toFixed(2)),
-          release:    parseFloat(at(t.release, w(v.rel)).toFixed(2)),
-          reverbSize: parseFloat(at(t.reverbSize, w(v.rv)).toFixed(2)),
-          reverbWet:  parseFloat(at(t.reverbWet, w(v.rv)).toFixed(2)),
+          cutoff:     Math.round(at(t.cutoff, wC)),
+          resonance:  parseFloat(at(t.resonance, wR).toFixed(2)),
+          attack:     parseFloat(at(t.attack, wA).toFixed(3)),
+          decay:      parseFloat(at(t.decay, wD).toFixed(3)),
+          sustain:    parseFloat(at(t.sustain, wS).toFixed(2)),
+          release:    parseFloat(at(t.release, wRel).toFixed(2)),
+          reverbSize: parseFloat(at(t.reverbSize, wRv).toFixed(2)),
+          reverbWet:  parseFloat(at(t.reverbWet, wRv).toFixed(2)),
           oscType,
-          drive:      parseFloat(at(t.drive, w(v.dr)).toFixed(2)),
-          chorus:     parseFloat(at(t.chorus, w(v.ch)).toFixed(2)),
-          delayMix:   parseFloat(at(t.delayMix, w(v.dl)).toFixed(2)),
+          drive:      parseFloat(at(t.drive, wDr).toFixed(2)),
+          chorus:     parseFloat(at(t.chorus, wCh).toFixed(2)),
+          delayMix:   parseFloat(at(t.delayMix, wDl).toFixed(2)),
         },
         artists: [],
         tags: t.matchTags.slice(0, 5),
