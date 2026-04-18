@@ -90,9 +90,7 @@ export async function POST(req: NextRequest) {
     }));
 
     // 3. Generate sounds from tags
-    const generatedResults = tags.length > 0
-      ? generateSounds(artist || prompt, tags)
-      : [];
+    const generatedResults = generateSounds(artist || prompt, tags);
 
     // 4. Merge: curated presets first, then generated (no name dupes)
     const seen = new Set(presetResults.map(r => r.name));

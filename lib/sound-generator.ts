@@ -512,9 +512,23 @@ function at(range: Range, pos: number) { return range.min + (range.max - range.m
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
+const FALLBACK_TAG_POOL = [
+  'trap','hip-hop','r&b','electronic','ambient','dark','bright','house',
+  'techno','indie','jazz','soul','pop','experimental','bass','melodic',
+  'chill','energetic','warm','cold','lofi','cinematic','atmospheric','acid',
+];
+
 export function generateSounds(artistName: string, artistTags: string[]): GeneratedSound[] {
-  const tags = artistTags.map(t => t.toLowerCase());
   const rng  = seededRng(artistName.toLowerCase());
+
+  // When no tags available, derive pseudo-genre fingerprint from artist name
+  // so different unknown artists get different template orderings
+  let resolvedTags = artistTags.map(t => t.toLowerCase());
+  if (resolvedTags.length === 0 && artistName) {
+    const shuffled = [...FALLBACK_TAG_POOL].sort(() => rng() - 0.5);
+    resolvedTags = shuffled.slice(0, 6);
+  }
+  const tags = resolvedTags;
 
   // Score every template against the artist's tags — use ALL templates, sorted by relevance
   const pool = TEMPLATES.map(t => {
@@ -528,7 +542,7 @@ export function generateSounds(artistName: string, artistTags: string[]): Genera
     const oscType = t.oscTypes[Math.floor(rng() * t.oscTypes.length)];
     const confidence = parseFloat(Math.min(0.35 + score * 0.65, 1.0).toFixed(2));
     for (const v of VARIATIONS) {
-      const branded = artistName && confidence >= 0.4;
+      const branded = !!artistName;
       const displayName = branded ? `${artistName} \u2014 ${t.name} \u00B7 ${v.name}` : `${t.name} \u2014 ${v.name}`;
       sounds.push({
         name:          displayName,
