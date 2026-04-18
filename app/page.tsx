@@ -497,26 +497,49 @@ const OSC_COLORS: Record<string, string> = { sine: "#22c55e", saw: "#a855f7", sq
 
 // ─── Sound card ───────────────────────────────────────────────────────────────
 
-function SoundCard({ result, index, isPlaying, onPlay, onPlayArp, onStop, onVary }: {
-  result: SoundResult; index: number; isPlaying: boolean;
-  onPlay: () => void; onPlayArp: () => void; onStop: () => void; onVary?: () => void;
+
+const TWEAK_PARAMS: { key: keyof SynthParams; label: string; min: number; max: number; step: number }[] = [
+  { key: "cutoff",    label: "Cutoff",    min: 20,  max: 20000, step: 100  },
+  { key: "resonance", label: "Resonance", min: 0.1, max: 10,    step: 0.1  },
+  { key: "attack",    label: "Attack",    min: 0,   max: 5,     step: 0.01 },
+  { key: "decay",     label: "Decay",     min: 0,   max: 5,     step: 0.01 },
+  { key: "sustain",   label: "Sustain",   min: 0,   max: 1,     step: 0.01 },
+  { key: "release",   label: "Release",   min: 0,   max: 8,     step: 0.05 },
+  { key: "reverbWet", label: "Reverb",    min: 0,   max: 1,     step: 0.01 },
+  { key: "drive",     label: "Drive",     min: 0,   max: 1,     step: 0.01 },
+  { key: "chorus",    label: "Chorus",    min: 0,   max: 1,     step: 0.01 },
+  { key: "delayMix",  label: "Delay",     min: 0,   max: 1,     step: 0.01 },
+];
+
+function SoundCard({ result, index, isPlaying, isFav, onPlay, onPlayArp, onStop, onFav, onVary }: {
+  result: SoundResult; index: number; isPlaying: boolean; isFav?: boolean;
+  onPlay: (params: SynthParams) => void; onPlayArp: (params: SynthParams) => void;
+  onStop: () => void; onFav?: () => void; onVary?: () => void;
 }) {
-  const [copied, setCopied]   = useState(false);
-  const [exported, setExported] = useState(false);
-  const oscColor  = OSC_COLORS[result.params.oscType] ?? "#888";
+  const [copied, setCopied]       = useState(false);
+  const [exported, setExported]   = useState(false);
+  const [tweakOpen, setTweakOpen] = useState(false);
+  const [tweaked, setTweaked]     = useState<SynthParams>({ ...result.params });
+
+  const oscColor  = OSC_COLORS[tweaked.oscType] ?? "#888";
   const confPct   = Math.round(Math.min(result.confidence, 1) * 100);
   const confColor = confPct > 70 ? "var(--green)" : confPct > 40 ? "var(--accent2)" : "var(--muted)";
   const gc        = gColor(result.genre);
+  const isDirty   = JSON.stringify(tweaked) !== JSON.stringify(result.params);
 
   const handleExport = () => {
-    exportToVital(result);
+    exportToVital({ ...result, params: tweaked });
     setExported(true);
     setTimeout(() => setExported(false), 2000);
   };
 
+  const tweakParam = (key: string, val: number | string) =>
+    setTweaked(p => ({ ...p, [key]: val }));
+
   return (
     <div style={{
-      background: "var(--surface)", border: `1px solid ${isPlaying ? "var(--accent)" : "var(--border)"}`,
+      background: "var(--surface)",
+      border: `1px solid ${isPlaying ? "var(--accent)" : isFav ? "rgba(168,85,247,0.4)" : "var(--border)"}`,
       borderRadius: 12, padding: 20, position: "relative", overflow: "hidden",
       animation: `fadeUp 0.35s ease ${Math.min(index, 20) * 0.04}s both`,
       transition: "border-color 0.2s, box-shadow 0.2s",
@@ -534,6 +557,9 @@ function SoundCard({ result, index, isPlaying, onPlay, onPlayArp, onStop, onVary
                 {result.genre}
               </span>
             )}
+            {isDirty && (
+              <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "rgba(245,158,11,0.15)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)", fontWeight: 700 }}>TWEAKED</span>
+            )}
           </div>
           <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, lineHeight: 1.4 }}>{result.description}</p>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -545,64 +571,127 @@ function SoundCard({ result, index, isPlaying, onPlay, onPlayArp, onStop, onVary
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, marginLeft: 12, flexShrink: 0 }}>
-          <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "var(--surface2)", border: "1px solid var(--border)", color: oscColor, fontFamily: "monospace", fontWeight: 700, textTransform: "uppercase" }}>
-            {result.params.oscType}
-          </span>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {onFav && (
+              <button onClick={onFav} title={isFav ? "Remove from favorites" : "Add to favorites"}
+                style={{ fontSize: 16, padding: "2px 6px", borderRadius: 6, cursor: "pointer", background: "transparent", border: "none", color: isFav ? "#f472b6" : "var(--muted)", transition: "color 0.15s", lineHeight: 1 }}>
+                {isFav ? "\u2665" : "\u2661"}
+              </button>
+            )}
+            <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "var(--surface2)", border: "1px solid var(--border)", color: oscColor, fontFamily: "monospace", fontWeight: 700, textTransform: "uppercase" }}>
+              {tweaked.oscType}
+            </span>
+          </div>
 
-          {/* Play buttons */}
           {isPlaying ? (
             <button onClick={onStop}
               style={{ fontSize: 12, padding: "5px 14px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, background: "rgba(124,58,237,0.25)", border: "1px solid var(--accent2)", color: "#fff", letterSpacing: "0.04em", animation: "pulse 1.5s ease infinite" }}>
-              ■ Stop
+              \u25a0 Stop
             </button>
           ) : (
             <div style={{ display: "flex", gap: 4 }}>
-              <button onClick={onPlayArp}
+              <button onClick={() => onPlayArp(tweaked)}
                 style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, background: "linear-gradient(135deg,var(--accent),var(--accent2))", border: "none", color: "#fff", letterSpacing: "0.03em" }}
                 title="Preview as rising chord arpeggio">
-                ♫ Arp
+                \u266b Arp
               </button>
-              <button onClick={onPlay}
+              <button onClick={() => onPlay(tweaked)}
                 style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--accent2)", letterSpacing: "0.03em" }}>
-                ▶ Note
+                \u25b6 Note
               </button>
             </div>
           )}
 
-          {/* Export + Copy */}
           <button onClick={handleExport}
             style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, cursor: "pointer",
               background: exported ? "rgba(124,58,237,0.15)" : "var(--surface2)",
               border: `1px solid ${exported ? "var(--accent)" : "var(--border)"}`,
               color: exported ? "var(--accent2)" : "var(--muted)", transition: "all 0.2s" }}
             title="Download as Vital synth preset">
-            {exported ? "✓ Saved" : "⬇ Vital"}
+            {exported ? "\u2713 Saved" : "\u2b07 Vital"}
           </button>
           {onVary && (
             <button onClick={onVary}
               style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, cursor: "pointer", background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--muted)", transition: "all 0.2s" }}
               title="Generate 5 randomised variants of this sound">
-              ∿ Vary
+              \u223f Vary
             </button>
           )}
+          <button onClick={() => setTweakOpen(o => !o)}
+            style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, cursor: "pointer",
+              background: tweakOpen ? "rgba(124,58,237,0.15)" : "var(--surface2)",
+              border: `1px solid ${tweakOpen ? "var(--accent)" : "var(--border)"}`,
+              color: tweakOpen ? "var(--accent2)" : "var(--muted)", transition: "all 0.2s" }}>
+            {tweakOpen ? "\u00d7 Close" : "\u229e Tweak"}
+          </button>
           <button onClick={() => {
-            navigator.clipboard.writeText(JSON.stringify(result.params, null, 2));
+            navigator.clipboard.writeText(JSON.stringify(tweaked, null, 2));
             setCopied(true); setTimeout(() => setCopied(false), 2000);
           }}
             style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, cursor: "pointer",
               background: copied ? "rgba(34,197,94,0.15)" : "var(--surface2)",
               border: `1px solid ${copied ? "var(--green)" : "var(--border)"}`,
               color: copied ? "var(--green)" : "var(--muted)", transition: "all 0.2s" }}>
-            {copied ? "✓ Copied" : "Copy JSON"}
+            {copied ? "\u2713 Copied" : "Copy JSON"}
           </button>
         </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px" }}>
         {PARAM_BARS.map(({ key, label, min, max, unit }) => (
-          <ParamBar key={key} label={label} value={result.params[key] as number} min={min} max={max} unit={unit} />
+          <ParamBar key={key} label={label} value={tweaked[key as keyof SynthParams] as number} min={min} max={max} unit={unit} />
         ))}
       </div>
+
+      {tweakOpen && (
+        <div style={{ marginTop: 14, padding: "14px 16px", background: "var(--surface2)", borderRadius: 10, border: "1px solid var(--border)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--accent2)" }}>Live Tweaking</span>
+            <div style={{ display: "flex", gap: 5 }}>
+              <div style={{ display: "flex", gap: 3 }}>
+                {(["sine","saw","square"] as const).map(o => (
+                  <button key={o} onClick={() => tweakParam("oscType", o)}
+                    style={{ fontSize: 10, padding: "2px 7px", borderRadius: 5, cursor: "pointer", fontFamily: "monospace", fontWeight: 700, textTransform: "uppercase",
+                      background: tweaked.oscType === o ? `${OSC_COLORS[o]}22` : "var(--surface)",
+                      border: `1px solid ${tweaked.oscType === o ? OSC_COLORS[o] : "var(--border)"}`,
+                      color: tweaked.oscType === o ? OSC_COLORS[o] : "var(--muted)" }}>
+                    {o}
+                  </button>
+                ))}
+              </div>
+              {isDirty && (
+                <button onClick={() => setTweaked({ ...result.params })}
+                  style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, cursor: "pointer", fontFamily: "inherit", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", fontWeight: 700 }}>
+                  Reset
+                </button>
+              )}
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 20px" }}>
+            {TWEAK_PARAMS.map(({ key, label, min, max, step }) => {
+              const val = tweaked[key] as number;
+              const pct = Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100));
+              return (
+                <div key={key}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</span>
+                    <span style={{ fontSize: 9, fontFamily: "monospace", color: "var(--text)" }}>
+                      {key === "cutoff" ? (val >= 1000 ? `${(val/1000).toFixed(1)}k` : `${val}`) : val.toFixed(key === "attack" || key === "decay" ? 3 : 2)}
+                    </span>
+                  </div>
+                  <div style={{ position: "relative", height: 22, display: "flex", alignItems: "center" }}>
+                    <div style={{ position: "absolute", left: 0, right: 0, height: 3, borderRadius: 2, background: "var(--border)" }} />
+                    <div style={{ position: "absolute", left: 0, width: `${pct}%`, height: 3, borderRadius: 2, background: "linear-gradient(90deg,var(--accent),var(--accent2))", transition: "width 0.05s" }} />
+                    <input type="range" min={min} max={max} step={step} value={val}
+                      onChange={e => tweakParam(key as string, key === "cutoff" ? parseInt(e.target.value) : parseFloat(parseFloat(e.target.value).toFixed(step < 0.05 ? 3 : 2)))}
+                      style={{ position: "absolute", left: 0, right: 0, width: "100%", opacity: 0, cursor: "pointer", height: 22, margin: 0 }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {result.artistTags && result.artistTags.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 10, alignItems: "center" }}>
@@ -615,8 +704,6 @@ function SoundCard({ result, index, isPlaying, onPlay, onPlayArp, onStop, onVary
     </div>
   );
 }
-
-// ─── Artist autocomplete ──────────────────────────────────────────────────────
 
 function ArtistInput({ value, onChange, onSearch }: {
   value: string; onChange: (v: string) => void; onSearch: (a: string) => void;
@@ -873,7 +960,7 @@ function SimilarSidebar({ artists, mainImage, loading, onSelect, mobile }: {
 function VariationsModal({ source, onClose, playingId, onPlay, onPlayArp, onStop }: {
   source: SoundResult; onClose: () => void;
   playingId: string | null;
-  onPlay: (r: SoundResult) => void; onPlayArp: (r: SoundResult) => void; onStop: () => void;
+  onPlay: (name: string, params: SynthParams) => void; onPlayArp: (name: string, params: SynthParams) => void; onStop: () => void;
 }) {
   const variations = useMemo(() => generateVariations(source), [source]);
   // Close on Escape
@@ -908,7 +995,7 @@ function VariationsModal({ source, onClose, playingId, onPlay, onPlayArp, onStop
           {variations.map((v, i) => (
             <SoundCard key={v.name} result={v} index={i}
               isPlaying={playingId === v.name}
-              onPlay={() => onPlay(v)} onPlayArp={() => onPlayArp(v)} onStop={onStop}
+              onPlay={(params) => onPlay(v.name, params)} onPlayArp={(params) => onPlayArp(v.name, params)} onStop={onStop}
             />
           ))}
         </div>
@@ -952,6 +1039,8 @@ export default function Home() {
   const [variationsFor,  setVariationsFor]  = useState<SoundResult | null>(null);
   const [linkCopied,     setLinkCopied]     = useState(false);
   const { history: searchHistory, add: addToHistory, clear: clearHistory } = useSearchHistory();
+  const { favorites, toggle: toggleFav, isFav, clearAll: clearFavorites } = useFavorites();
+  const [showFavorites, setShowFavorites] = useState(false);
 
   // ── Filters ──────────────────────────────────────────────────────────────────
   const [sortBy,      setSortBy]      = useState<SortMode>("match-desc");
@@ -1037,21 +1126,21 @@ export default function Home() {
     return ctx;
   }, []);
 
-  const handlePlay = useCallback((result: SoundResult) => {
+  const handlePlay = useCallback((name: string, params: SynthParams) => {
     stopCurrent();
     const ctx = getCtx();
-    stopRef.current = playSound(ctx, result.params);
-    setPlayingId(result.name);
-    const dur = soundDuration(result.params);
+    stopRef.current = playSound(ctx, params);
+    setPlayingId(name);
+    const dur = soundDuration(params);
     stopTimerRef.current = setTimeout(() => { stopRef.current = null; setPlayingId(null); }, dur * 1000);
   }, [stopCurrent, getCtx]);
 
-  const handlePlayArp = useCallback((result: SoundResult) => {
+  const handlePlayArp = useCallback((name: string, params: SynthParams) => {
     stopCurrent();
     const ctx = getCtx();
-    const { stop, duration } = playArp(ctx, result.params);
+    const { stop, duration } = playArp(ctx, params);
     stopRef.current = stop;
-    setPlayingId(result.name);
+    setPlayingId(name);
     stopTimerRef.current = setTimeout(() => { stopRef.current = null; setPlayingId(null); }, duration * 1000);
   }, [stopCurrent, getCtx]);
 
@@ -1200,6 +1289,51 @@ export default function Home() {
           <GenrePicker artist={searchedArtist} onSearch={(tags) => search(artist, tags)} />
         )}
 
+        {/* Favorites panel */}
+        {favorites.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: showFavorites ? 12 : 0 }}>
+              <button onClick={() => setShowFavorites(v => !v)}
+                style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontWeight: 700,
+                  background: showFavorites ? "rgba(244,114,182,0.12)" : "var(--surface)",
+                  border: `1px solid ${showFavorites ? "rgba(244,114,182,0.5)" : "var(--border)"}`,
+                  color: showFavorites ? "#f472b6" : "var(--text)", transition: "all 0.2s" }}>
+                <span style={{ fontSize: 16 }}>{showFavorites ? "♥" : "♡"}</span>
+                Favorites
+                <span style={{ fontSize: 11, padding: "1px 7px", borderRadius: 12, background: "rgba(244,114,182,0.2)", color: "#f472b6" }}>{favorites.length}</span>
+              </button>
+              {showFavorites && (
+                <>
+                  <button onClick={() => exportBulkVital(favorites, "favorites")}
+                    style={{ fontSize: 12, padding: "6px 14px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontWeight: 700,
+                      background: "linear-gradient(135deg,var(--accent),var(--accent2))", border: "none", color: "#fff", letterSpacing: "0.04em" }}>
+                    ⬇ Export All ZIP
+                  </button>
+                  <button onClick={() => { if (confirm(`Remove all ${favorites.length} favorites?`)) clearFavorites(); }}
+                    style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
+                      background: "transparent", border: "1px solid rgba(239,68,68,0.35)", color: "#ef4444" }}>
+                    Clear All
+                  </button>
+                </>
+              )}
+            </div>
+            {showFavorites && (
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill,minmax(360px,1fr))", gap: 12 }}>
+                {favorites.map((r, i) => (
+                  <SoundCard key={r.name} result={r} index={i}
+                    isPlaying={playingId === r.name}
+                    isFav={true}
+                    onFav={() => toggleFav(r)}
+                    onPlay={(params) => handlePlay(r.name, params)}
+                    onPlayArp={(params) => handlePlayArp(r.name, params)}
+                    onStop={stopCurrent}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Results — layout: sidebar + main */}
         {(results.length > 0 || loading) && (
           <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexDirection: isMobile ? "column" : "row" }}>
@@ -1336,8 +1470,10 @@ export default function Home() {
                   <SoundCard
                     key={r.name} result={r} index={i}
                     isPlaying={playingId === r.name}
-                    onPlay={() => handlePlay(r)}
-                    onPlayArp={() => handlePlayArp(r)}
+                    isFav={isFav(r.name, favorites)}
+                    onFav={() => toggleFav(r)}
+                    onPlay={(params) => handlePlay(r.name, params)}
+                    onPlayArp={(params) => handlePlayArp(r.name, params)}
                     onStop={stopCurrent}
                     onVary={() => setVariationsFor(r)}
                   />
