@@ -512,9 +512,11 @@ function at(range: Range, pos: number) { return range.min + (range.max - range.m
 function clamp01(v: number) { return Math.max(0, Math.min(1, v)); }
 
 // ─── Artist sonic profile ─────────────────────────────────────────────────────
-// Five independent axes derived from the artist's tags + seeded RNG.
-// These axes are then used to pull every synth parameter toward the artist's
-// actual sonic character — not just a ±10% wobble on generic presets.
+// Five axes derived from weighted tag contributions + name-seeded RNG.
+// Every tag from Last.fm / Spotify / MusicBrainz that matches any entry here
+// pushes one or more axes in a musically meaningful direction.
+// Artists with no matching tags still get a unique, deterministic profile from
+// their name hash alone.
 
 interface ArtistProfile {
   darkness:     number; // 0 = bright/airy,   1 = dark/heavy
@@ -524,40 +526,233 @@ interface ArtistProfile {
   rhythmic:     number; // 0 = drone/ambient,  1 = punchy/percussive
 }
 
-function buildArtistProfile(artistName: string, tags: string[]): ArtistProfile {
-  const rng = seededRng(`profile|${artistName.toLowerCase()}`);
-  const has = (...terms: string[]) =>
-    terms.some(term => tags.some(t => t.includes(term) || term.includes(t)));
+// [tag_substring, darkness, aggression, spaciousness, warmth, rhythmic]
+// Matched via tag.includes(term) || term.includes(tag) — covers plurals / combos.
+// Values are additive deltas from 0.5 neutral; final axis = 0.5 + Σdeltas (clamped).
+type TagWeight = [string, number, number, number, number, number];
 
-  // Each axis: strong tag match → locked into a range, otherwise fully RNG-driven
-  // so artists with no matching tags still each get a unique, stable personality
-  const resolve = (high: boolean, low: boolean): number => {
-    if (high) return clamp01(0.58 + (rng() - 0.5) * 0.28);
-    if (low)  return clamp01(0.12 + (rng() - 0.5) * 0.20);
-    return rng();
+const TAG_WEIGHTS: TagWeight[] = [
+  // ── Hip-hop / Rap ──────────────────────────────────────────────────────────
+  ["trap",             0.25,  0.15, -0.15, -0.05,  0.35],
+  ["drill",            0.35,  0.35, -0.25, -0.15,  0.40],
+  ["grime",            0.25,  0.35, -0.15, -0.05,  0.35],
+  ["phonk",            0.45,  0.25,  0.05, -0.15,  0.25],
+  ["memphis",          0.40,  0.20,  0.00, -0.10,  0.25],
+  ["dark trap",        0.45,  0.25, -0.05, -0.15,  0.35],
+  ["cloud rap",        0.15,  0.00,  0.35,  0.10,  0.05],
+  ["plugg",            0.05,  0.00,  0.25,  0.15,  0.15],
+  ["rage",             0.20,  0.25,  0.10, -0.05,  0.20],
+  ["melodic rap",      0.00,  0.00,  0.15,  0.20,  0.15],
+  ["emo rap",          0.15,  0.10,  0.15,  0.05,  0.15],
+  ["boom bap",        -0.05,  0.05,  0.05,  0.35,  0.20],
+  ["east coast",      -0.05,  0.10,  0.00,  0.30,  0.20],
+  ["west coast",      -0.05,  0.05,  0.05,  0.25,  0.20],
+  ["golden age",      -0.10,  0.05,  0.05,  0.35,  0.20],
+  ["conscious",       -0.05,  0.00,  0.05,  0.30,  0.15],
+  ["gangsta",          0.20,  0.25, -0.10,  0.00,  0.30],
+  ["crunk",            0.20,  0.35, -0.15, -0.05,  0.40],
+  ["bounce",           0.00,  0.15, -0.10,  0.05,  0.45],
+  ["jersey club",      0.00,  0.20, -0.05, -0.05,  0.55],
+  ["hip-hop",          0.05,  0.10,  0.00,  0.20,  0.25],
+  ["hip hop",          0.05,  0.10,  0.00,  0.20,  0.25],
+  ["rap",              0.05,  0.15,  0.00,  0.10,  0.25],
+  // ── Electronic / Techno / House ────────────────────────────────────────────
+  ["techno",           0.15,  0.15, -0.05, -0.25,  0.45],
+  ["minimal techno",   0.10,  0.10,  0.05, -0.30,  0.40],
+  ["hard techno",      0.25,  0.40, -0.15, -0.35,  0.50],
+  ["berlin",           0.20,  0.15,  0.05, -0.20,  0.40],
+  ["industrial techno",0.35,  0.40,  0.00, -0.35,  0.40],
+  ["house",           -0.05,  0.00,  0.05,  0.10,  0.45],
+  ["deep house",      -0.10, -0.05,  0.15,  0.15,  0.40],
+  ["chicago house",   -0.05,  0.00,  0.05,  0.20,  0.45],
+  ["acid house",       0.05,  0.20,  0.00, -0.10,  0.40],
+  ["acid",             0.05,  0.25,  0.00, -0.15,  0.35],
+  ["acid techno",      0.10,  0.30, -0.05, -0.20,  0.40],
+  ["trance",          -0.05,  0.00,  0.25, -0.05,  0.35],
+  ["progressive trance",0.00, 0.00,  0.30, -0.05,  0.35],
+  ["psytrance",        0.10,  0.10,  0.15, -0.15,  0.40],
+  ["hard trance",      0.10,  0.25,  0.05, -0.20,  0.45],
+  ["dubstep",          0.15,  0.35, -0.05, -0.15,  0.35],
+  ["brostep",          0.15,  0.40, -0.10, -0.20,  0.35],
+  ["drum and bass",    0.05,  0.25, -0.05, -0.15,  0.50],
+  ["dnb",              0.05,  0.25, -0.05, -0.15,  0.50],
+  ["neurofunk",        0.15,  0.30, -0.05, -0.20,  0.50],
+  ["liquid dnb",      -0.05,  0.05,  0.15,  0.10,  0.45],
+  ["jungle",           0.05,  0.15, -0.05, -0.05,  0.45],
+  ["breakbeat",        0.05,  0.15, -0.05, -0.05,  0.45],
+  ["breaks",           0.00,  0.10,  0.00,  0.00,  0.40],
+  ["big beat",         0.05,  0.20, -0.05, -0.05,  0.45],
+  ["idm",              0.00,  0.05,  0.20, -0.05, -0.05],
+  ["braindance",       0.00,  0.10,  0.20, -0.05,  0.00],
+  ["experimental",     0.05,  0.00,  0.25,  0.00, -0.10],
+  ["glitch",           0.05,  0.15,  0.10, -0.15,  0.05],
+  ["electronica",      0.00,  0.00,  0.15, -0.05,  0.10],
+  ["electronic",       0.00,  0.00,  0.05, -0.05,  0.10],
+  ["electro",          0.05,  0.10,  0.00, -0.10,  0.30],
+  ["edm",             -0.10,  0.05,  0.05, -0.05,  0.35],
+  ["big room",        -0.05,  0.10,  0.10, -0.10,  0.40],
+  ["future bass",     -0.05,  0.00,  0.15,  0.05,  0.25],
+  ["wave",             0.15,  0.00,  0.25,  0.05,  0.10],
+  ["uk garage",        0.00,  0.05,  0.05,  0.05,  0.40],
+  ["2-step",           0.00,  0.05,  0.05,  0.05,  0.40],
+  ["uk bass",          0.05,  0.10,  0.05,  0.00,  0.35],
+  ["post-dubstep",     0.05,  0.00,  0.20,  0.05,  0.15],
+  ["footwork",         0.00,  0.15, -0.05, -0.05,  0.55],
+  ["juke",             0.00,  0.15, -0.05, -0.05,  0.55],
+  ["gabber",           0.15,  0.55, -0.15, -0.35,  0.50],
+  ["hardcore",         0.25,  0.55, -0.05, -0.35,  0.40],
+  ["hardstyle",        0.05,  0.45, -0.05, -0.25,  0.45],
+  ["frenchcore",       0.15,  0.50, -0.15, -0.30,  0.50],
+  ["ambient",         -0.05, -0.25,  0.55,  0.10, -0.40],
+  ["dark ambient",     0.55, -0.10,  0.50, -0.05, -0.35],
+  ["drone",            0.15, -0.20,  0.60,  0.00, -0.50],
+  ["noise",            0.25,  0.45,  0.05, -0.35,  0.00],
+  ["industrial",       0.35,  0.45,  0.00, -0.35,  0.10],
+  ["power electronics",0.40,  0.55,  0.00, -0.45,  0.05],
+  ["darksynth",        0.55,  0.45,  0.00, -0.35,  0.20],
+  ["synthwave",        0.00,  0.00,  0.20,  0.00,  0.20],
+  ["outrun",           0.00,  0.00,  0.15,  0.00,  0.25],
+  ["retrowave",        0.00,  0.00,  0.20,  0.05,  0.20],
+  ["vaporwave",       -0.15, -0.20,  0.50,  0.10, -0.25],
+  ["future funk",     -0.10,  0.00,  0.15,  0.25,  0.35],
+  ["chillwave",       -0.15, -0.30,  0.40,  0.20, -0.15],
+  ["lo-fi",           -0.05, -0.20,  0.20,  0.40,  0.00],
+  ["lofi",            -0.05, -0.20,  0.20,  0.40,  0.00],
+  ["chillhop",        -0.05, -0.20,  0.20,  0.35,  0.05],
+  ["trip-hop",         0.15, -0.10,  0.40,  0.20, -0.05],
+  ["downtempo",        0.10, -0.15,  0.35,  0.15, -0.15],
+  ["hauntology",       0.10, -0.15,  0.45,  0.10, -0.20],
+  ["hyperpop",         0.00,  0.15,  0.00, -0.05,  0.20],
+  ["digicore",         0.00,  0.10,  0.05, -0.05,  0.20],
+  ["bubblegum bass",  -0.10,  0.10,  0.05, -0.05,  0.25],
+  ["pc music",        -0.15,  0.05,  0.00, -0.05,  0.25],
+  // ── R&B / Soul / Jazz ──────────────────────────────────────────────────────
+  ["r&b",             -0.10, -0.20,  0.10,  0.45,  0.10],
+  ["rnb",             -0.10, -0.20,  0.10,  0.45,  0.10],
+  ["soul",            -0.15, -0.25,  0.10,  0.55,  0.10],
+  ["neo-soul",        -0.15, -0.25,  0.20,  0.55,  0.05],
+  ["gospel",          -0.25, -0.20,  0.10,  0.55,  0.10],
+  ["funk",            -0.05,  0.00,  0.00,  0.40,  0.40],
+  ["jazz",            -0.15, -0.20,  0.20,  0.55,  0.00],
+  ["jazz rap",        -0.05,  0.05,  0.10,  0.40,  0.15],
+  ["blues",           -0.10, -0.10,  0.05,  0.45,  0.10],
+  ["smooth",          -0.15, -0.20,  0.10,  0.35,  0.05],
+  ["quiet storm",     -0.15, -0.25,  0.15,  0.40,  0.00],
+  // ── Rock / Guitar ──────────────────────────────────────────────────────────
+  ["rock",             0.05,  0.20,  0.00,  0.00,  0.30],
+  ["alternative",      0.05,  0.10,  0.05,  0.05,  0.20],
+  ["indie",            0.00,  0.00,  0.10,  0.10,  0.15],
+  ["indie rock",       0.00,  0.10,  0.05,  0.10,  0.20],
+  ["metal",            0.35,  0.55,  0.00, -0.35,  0.25],
+  ["death metal",      0.45,  0.60, -0.05, -0.45,  0.30],
+  ["black metal",      0.50,  0.45,  0.10, -0.40,  0.20],
+  ["doom metal",       0.45,  0.20,  0.20, -0.30,  0.00],
+  ["sludge",           0.40,  0.30,  0.15, -0.25,  0.05],
+  ["stoner",           0.20,  0.10,  0.30, -0.10, -0.10],
+  ["thrash",           0.30,  0.55, -0.10, -0.35,  0.40],
+  ["metalcore",        0.30,  0.55, -0.05, -0.30,  0.35],
+  ["djent",            0.25,  0.40,  0.05, -0.25,  0.30],
+  ["punk",             0.05,  0.45, -0.05, -0.05,  0.35],
+  ["post-punk",        0.15,  0.25,  0.15,  0.00,  0.20],
+  ["new wave",         0.00,  0.05,  0.10,  0.00,  0.25],
+  ["grunge",           0.15,  0.30,  0.05, -0.10,  0.25],
+  ["britpop",         -0.05,  0.10,  0.05,  0.10,  0.25],
+  ["emo",              0.15,  0.15,  0.10,  0.00,  0.20],
+  ["post-rock",       -0.05,  0.00,  0.45,  0.10, -0.10],
+  ["shoegaze",        -0.05,  0.00,  0.55,  0.10, -0.20],
+  ["dream pop",       -0.15, -0.20,  0.50,  0.20, -0.15],
+  ["noise rock",       0.20,  0.35,  0.15, -0.15,  0.20],
+  ["art rock",         0.05,  0.05,  0.20,  0.10,  0.10],
+  // ── Pop / Mainstream ───────────────────────────────────────────────────────
+  ["pop",             -0.25, -0.10,  0.00,  0.10,  0.20],
+  ["synth-pop",       -0.10,  0.00,  0.10,  0.00,  0.30],
+  ["electropop",      -0.10,  0.00,  0.05, -0.05,  0.30],
+  ["dance-pop",       -0.15,  0.00,  0.00,  0.05,  0.40],
+  ["art pop",         -0.05, -0.05,  0.15,  0.10,  0.10],
+  ["indie pop",       -0.10, -0.05,  0.10,  0.15,  0.15],
+  ["chamber pop",     -0.20, -0.15,  0.15,  0.25, -0.05],
+  ["k-pop",           -0.25, -0.10,  0.10,  0.00,  0.40],
+  ["j-pop",           -0.20, -0.05,  0.10,  0.05,  0.35],
+  ["singer-songwriter",-0.15,-0.20,  0.10,  0.25, -0.10],
+  ["ballad",          -0.10, -0.20,  0.15,  0.25, -0.20],
+  // ── Ambient / Atmospheric / Cinematic ─────────────────────────────────────
+  ["neoclassical",    -0.25, -0.30,  0.40,  0.40, -0.30],
+  ["new age",         -0.35, -0.45,  0.65,  0.40, -0.40],
+  ["meditation",      -0.40, -0.45,  0.65,  0.40, -0.45],
+  ["healing",         -0.40, -0.40,  0.55,  0.45, -0.40],
+  ["cinematic",        0.05, -0.05,  0.40,  0.10, -0.15],
+  ["film score",       0.05, -0.05,  0.40,  0.15, -0.15],
+  ["ethereal",        -0.15, -0.20,  0.55,  0.15, -0.30],
+  ["atmospheric",      0.05, -0.10,  0.45,  0.05, -0.20],
+  // ── World / Latin / Other ──────────────────────────────────────────────────
+  ["afrobeats",       -0.10,  0.00,  0.00,  0.25,  0.50],
+  ["afropop",         -0.10,  0.00,  0.00,  0.25,  0.45],
+  ["amapiano",        -0.05,  0.00,  0.05,  0.20,  0.45],
+  ["afroswing",       -0.05,  0.05,  0.05,  0.20,  0.40],
+  ["reggae",          -0.10, -0.15,  0.20,  0.30,  0.20],
+  ["dub",             -0.05, -0.15,  0.40,  0.20,  0.15],
+  ["dancehall",        0.00,  0.05,  0.00,  0.15,  0.40],
+  ["country",         -0.15, -0.10,  0.05,  0.40,  0.20],
+  ["folk",            -0.15, -0.15,  0.10,  0.40, -0.10],
+  ["country rap",      0.10,  0.10,  0.00,  0.25,  0.25],
+  ["latin",           -0.05,  0.05,  0.00,  0.20,  0.40],
+  ["reggaeton",        0.00,  0.10, -0.05,  0.10,  0.45],
+  ["latin trap",       0.20,  0.15, -0.10,  0.05,  0.40],
+  ["salsa",           -0.05,  0.05,  0.00,  0.25,  0.50],
+  ["cumbia",          -0.05,  0.00,  0.05,  0.25,  0.45],
+  ["baile funk",       0.05,  0.15, -0.10,  0.05,  0.55],
+  // ── Descriptors that appear as Last.fm tags ────────────────────────────────
+  ["dark",             0.35,  0.10,  0.05, -0.10,  0.00],
+  ["heavy",            0.25,  0.30,  0.00, -0.20,  0.15],
+  ["aggressive",       0.20,  0.45, -0.10, -0.15,  0.25],
+  ["melancholic",      0.20, -0.15,  0.20,  0.10, -0.10],
+  ["sad",              0.15, -0.15,  0.15,  0.10, -0.10],
+  ["emotional",        0.10, -0.10,  0.15,  0.15, -0.05],
+  ["mellow",          -0.10, -0.20,  0.15,  0.25, -0.10],
+  ["chill",           -0.10, -0.25,  0.20,  0.20, -0.15],
+  ["relaxing",        -0.15, -0.30,  0.25,  0.25, -0.20],
+  ["uplifting",       -0.25, -0.05,  0.10,  0.10,  0.10],
+  ["euphoric",        -0.20,  0.05,  0.15,  0.05,  0.20],
+  ["energetic",       -0.10,  0.25, -0.05, -0.05,  0.35],
+  ["catchy",          -0.15,  0.00,  0.00,  0.10,  0.25],
+  ["romantic",        -0.15, -0.20,  0.10,  0.35, -0.05],
+  ["sensual",         -0.10, -0.15,  0.15,  0.35,  0.05],
+  ["psychedelic",      0.10,  0.00,  0.35,  0.05, -0.05],
+  ["stoner rock",      0.20,  0.05,  0.30, -0.05, -0.05],
+  ["spiritual",       -0.25, -0.25,  0.40,  0.30, -0.20],
+  ["party",           -0.15,  0.10, -0.10,  0.05,  0.45],
+  ["club",            -0.05,  0.05, -0.10, -0.05,  0.45],
+  ["dance",           -0.10,  0.00,  0.00,  0.05,  0.35],
+];
+
+function buildArtistProfile(artistName: string, tags: string[]): ArtistProfile {
+  const nameRng = seededRng(`profile|${artistName.toLowerCase()}`);
+
+  // Sum weighted contributions from every matching tag
+  let d = 0, ag = 0, sp = 0, wa = 0, ry = 0, matches = 0;
+  for (const [term, td, ta, ts, tw, tr] of TAG_WEIGHTS) {
+    if (tags.some(t => t.includes(term) || term.includes(t))) {
+      d += td; ag += ta; sp += ts; wa += tw; ry += tr;
+      matches++;
+    }
+  }
+
+  // Convert accumulated delta to 0-1:
+  // - Strong tag signal: 0.5 + clamped delta + tiny name noise
+  // - No matching tags: fully name-hash driven (unique but consistent per artist)
+  const noiseAmt = matches > 3 ? 0.06 : matches > 0 ? 0.14 : 0.0;
+  const toAxis = (delta: number): number => {
+    if (matches === 0) return nameRng(); // pure name-hash uniqueness
+    const scale = Math.max(matches, 2); // avoid over-driving from a single tag
+    return clamp01(0.5 + delta / scale + (nameRng() - 0.5) * noiseAmt * 2);
   };
 
   return {
-    darkness: resolve(
-      has('dark','doom','ominous','goth','industrial','phonk','grime','darksynth','occult','horror','sinister','evil','black metal','death metal'),
-      has('bright','happy','euphoric','bubblegum','sunshine','uplifting','cheerful','pop punk','candy')
-    ),
-    aggression: resolve(
-      has('metal','hardcore','noise','aggressive','hard techno','gabber','darksynth','thrash','grindcore','power electronics','harsh','brutal'),
-      has('ambient','meditation','new age','gentle','soft','lullaby','calm','peaceful','healing','relaxation')
-    ),
-    spaciousness: resolve(
-      has('ambient','shoegaze','ethereal','cinematic','dream','vaporwave','drone','shimmer','post-rock','reverb','hauntology','new age','atmospheric'),
-      has('trap','minimal','punchy','dry','percussive','staccato','tight','bounce','dembow')
-    ),
-    warmth: resolve(
-      has('jazz','soul','neo-soul','r&b','gospel','funk','organic','warm','blues','lofi','lo-fi','acoustic','folk'),
-      has('industrial','cold','clinical','digital','glitch','harsh','cyber','machine','electro-industrial')
-    ),
-    rhythmic: resolve(
-      has('trap','techno','dnb','drum and bass','house','breakbeat','jungle','dembow','bounce','4x4','drill','club','footwork','juke'),
-      has('ambient','drone','new age','shoegaze','ethereal','shimmer','meditation','spoken word')
-    ),
+    darkness:     toAxis(d),
+    aggression:   toAxis(ag),
+    spaciousness: toAxis(sp),
+    warmth:       toAxis(wa),
+    rhythmic:     toAxis(ry),
   };
 }
 
