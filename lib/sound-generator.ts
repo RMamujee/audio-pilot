@@ -528,8 +528,10 @@ export function generateSounds(artistName: string, artistTags: string[]): Genera
     const oscType = t.oscTypes[Math.floor(rng() * t.oscTypes.length)];
     const confidence = parseFloat(Math.min(0.35 + score * 0.65, 1.0).toFixed(2));
     for (const v of VARIATIONS) {
+      const branded = artistName && confidence >= 0.4;
+      const displayName = branded ? `${artistName} \u2014 ${t.name} \u00B7 ${v.name}` : `${t.name} \u2014 ${v.name}`;
       sounds.push({
-        name:          `${t.name} — ${v.name}`,
+        name:          displayName,
         description:   t.description,
         genre:         t.genre,
         confidence,
