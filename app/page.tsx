@@ -575,7 +575,7 @@ function SoundCard({ result, index, isPlaying, isFav, onPlay, onPlayArp, onStop,
             {onFav && (
               <button onClick={onFav} title={isFav ? "Remove from favorites" : "Add to favorites"}
                 style={{ fontSize: 16, padding: "2px 6px", borderRadius: 6, cursor: "pointer", background: "transparent", border: "none", color: isFav ? "#f472b6" : "var(--muted)", transition: "color 0.15s", lineHeight: 1 }}>
-                {isFav ? "\u2665" : "\u2661"}
+                {isFav ? "♥" : "♡"}
               </button>
             )}
             <span style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "var(--surface2)", border: "1px solid var(--border)", color: oscColor, fontFamily: "monospace", fontWeight: 700, textTransform: "uppercase" }}>
@@ -586,18 +586,18 @@ function SoundCard({ result, index, isPlaying, isFav, onPlay, onPlayArp, onStop,
           {isPlaying ? (
             <button onClick={onStop}
               style={{ fontSize: 12, padding: "5px 14px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, background: "rgba(124,58,237,0.25)", border: "1px solid var(--accent2)", color: "#fff", letterSpacing: "0.04em", animation: "pulse 1.5s ease infinite" }}>
-              \u25a0 Stop
+              ■ Stop
             </button>
           ) : (
             <div style={{ display: "flex", gap: 4 }}>
               <button onClick={() => onPlayArp(tweaked)}
                 style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, background: "linear-gradient(135deg,var(--accent),var(--accent2))", border: "none", color: "#fff", letterSpacing: "0.03em" }}
                 title="Preview as rising chord arpeggio">
-                \u266b Arp
+                ♫ Arp
               </button>
               <button onClick={() => onPlay(tweaked)}
                 style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "inherit", fontWeight: 700, background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--accent2)", letterSpacing: "0.03em" }}>
-                \u25b6 Note
+                ▶ Note
               </button>
             </div>
           )}
@@ -608,13 +608,13 @@ function SoundCard({ result, index, isPlaying, isFav, onPlay, onPlayArp, onStop,
               border: `1px solid ${exported ? "var(--accent)" : "var(--border)"}`,
               color: exported ? "var(--accent2)" : "var(--muted)", transition: "all 0.2s" }}
             title="Download as Vital synth preset">
-            {exported ? "\u2713 Saved" : "\u2b07 Vital"}
+            {exported ? "✓ Saved" : "⬇ Vital"}
           </button>
           {onVary && (
             <button onClick={onVary}
               style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, cursor: "pointer", background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--muted)", transition: "all 0.2s" }}
               title="Generate 5 randomised variants of this sound">
-              \u223f Vary
+              ∿ Vary
             </button>
           )}
           <button onClick={() => setTweakOpen(o => !o)}
@@ -622,7 +622,7 @@ function SoundCard({ result, index, isPlaying, isFav, onPlay, onPlayArp, onStop,
               background: tweakOpen ? "rgba(124,58,237,0.15)" : "var(--surface2)",
               border: `1px solid ${tweakOpen ? "var(--accent)" : "var(--border)"}`,
               color: tweakOpen ? "var(--accent2)" : "var(--muted)", transition: "all 0.2s" }}>
-            {tweakOpen ? "\u00d7 Close" : "\u229e Tweak"}
+            {tweakOpen ? "× Close" : "⊞ Tweak"}
           </button>
           <button onClick={() => {
             navigator.clipboard.writeText(JSON.stringify(tweaked, null, 2));
@@ -632,7 +632,7 @@ function SoundCard({ result, index, isPlaying, isFav, onPlay, onPlayArp, onStop,
               background: copied ? "rgba(34,197,94,0.15)" : "var(--surface2)",
               border: `1px solid ${copied ? "var(--green)" : "var(--border)"}`,
               color: copied ? "var(--green)" : "var(--muted)", transition: "all 0.2s" }}>
-            {copied ? "\u2713 Copied" : "Copy JSON"}
+            {copied ? "✓ Copied" : "Copy JSON"}
           </button>
         </div>
       </div>
