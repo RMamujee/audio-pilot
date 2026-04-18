@@ -395,7 +395,7 @@ function exportBulkVital(results: SoundResult[], label: string): void {
     return { name: `${base}.vital`, data: enc.encode(JSON.stringify(buildVitalPreset(r), null, 2)) };
   });
   const zip = buildZip(files);
-  const blob = new Blob([zip], { type: "application/zip" });
+  const blob = new Blob([zip.buffer as ArrayBuffer], { type: "application/zip" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
