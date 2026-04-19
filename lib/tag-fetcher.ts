@@ -3,6 +3,19 @@ const SPOTIFY_CLIENT_ID  = process.env.SPOTIFY_CLIENT_ID;
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 const MB_UA = "AudioPilot/2.0 (audiopilot-vercel)";
 
+export interface ArtistAudioFeatures {
+  energy:           number;  // 0–1
+  valence:          number;  // 0–1 (0 = dark/sad, 1 = happy/bright)
+  danceability:     number;  // 0–1
+  acousticness:     number;  // 0–1
+  instrumentalness: number;  // 0–1
+  loudnessNorm:     number;  // 0–1 (normalised from –60..0 dB)
+  tempo:            number;  // BPM
+  speechiness:      number;  // 0–1
+  mode:             number;  // 0 = minor, 1 = major (averaged)
+  trackCount:       number;
+}
+
 // ─── Spotify token cache ──────────────────────────────────────────────────────
 
 let _spToken: string | null = null;
@@ -174,4 +187,57 @@ export async function fetchArtistTags(artist: string): Promise<{
 
   const tags = [...new Set(combined.map(t => t.toLowerCase().trim()).filter(Boolean))];
   return { tags, sources };
+}
+
+export async function fetchArtistAudioFeatures(
+  artist: string,
+): Promise<ArtistAudioFeatures | null> {
+  const token = await getSpotifyToken();
+  if (!token) return null;
+  try {
+    // 1. Resolve artist ID
+    const sr = await fetch(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(artist)}&type=artist&limit=3`,
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(6_000) },
+    );
+    if (!sr.ok) return null;
+    const sd = await sr.json() as { artists?: { items?: { id: string; name: string }[] } };
+    const items = sd.artists?.items ?? [];
+    const match = items.find(a => a.name.toLowerCase() === artist.toLowerCase()) ?? items[0];
+    if (!match) return null;
+
+    // 2. Top tracks
+    const tr = await fetch(
+      `https://api.spotify.com/v1/artists/${match.id}/top-tracks?market=US`,
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(6_000) },
+    );
+    if (!tr.ok) return null;
+    const td = await tr.json() as { tracks?: { id: string }[] };
+    const ids = (td.tracks ?? []).slice(0, 10).map(t => t.id);
+    if (!ids.length) return null;
+
+    // 3. Audio features
+    const fr = await fetch(
+      `https://api.spotify.com/v1/audio-features?ids=${ids.join(",")}`,
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(6_000) },
+    );
+    if (!fr.ok) return null;
+    const fd = await fr.json() as { audio_features?: (Record<string, number> | null)[] };
+    const feats = (fd.audio_features ?? []).filter((f): f is Record<string, number> => f !== null);
+    if (!feats.length) return null;
+
+    const avg = (k: string) => feats.reduce((s, f) => s + (f[k] ?? 0), 0) / feats.length;
+    return {
+      energy:           avg("energy"),
+      valence:          avg("valence"),
+      danceability:     avg("danceability"),
+      acousticness:     avg("acousticness"),
+      instrumentalness: avg("instrumentalness"),
+      loudnessNorm:     Math.max(0, Math.min(1, (avg("loudness") + 60) / 60)),
+      tempo:            avg("tempo"),
+      speechiness:      avg("speechiness"),
+      mode:             avg("mode"),
+      trackCount:       feats.length,
+    };
+  } catch { return null; }
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { matchPresets } from "@/lib/matcher";
-import { fetchArtistTags } from "@/lib/tag-fetcher";
+import { fetchArtistTags, fetchArtistAudioFeatures } from "@/lib/tag-fetcher";
 import { generateSounds } from "@/lib/sound-generator";
 
 export const runtime = "nodejs";
@@ -78,8 +78,9 @@ export async function POST(req: NextRequest) {
 
     // ── Path B: Local pipeline ───────────────────────────────────────────────
     // 1. Fetch artist tags (skip if manual tags provided)
-    const [{ tags: fetchedTags, sources }, presetMatches] = await Promise.all([
+    const [{ tags: fetchedTags, sources }, audioFeatures, presetMatches] = await Promise.all([
       (artist && manualTags.length === 0) ? fetchArtistTags(artist) : Promise.resolve({ tags: [] as string[], sources: [] as string[] }),
+      (artist && manualTags.length === 0) ? fetchArtistAudioFeatures(artist) : Promise.resolve(null),
       Promise.resolve(matchPresets(prompt, artist, 50)),
     ]);
 
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
     }));
 
     // 3. Generate sounds from tags
-    const generatedResults = generateSounds(artist || prompt, tags);
+    const generatedResults = generateSounds(artist || prompt, tags, audioFeatures);
 
     // 4. Merge: curated presets first, then generated (no name dupes)
     const seen = new Set(presetResults.map(r => r.name));

@@ -1,3 +1,5 @@
+import type { ArtistAudioFeatures } from "./tag-fetcher";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type OscType = "sine" | "saw" | "square";
@@ -262,9 +264,14 @@ const TAG_WEIGHTS: TagWeight[] = [
   ["progressive",        0.05,  0.05,  0.30,  0.05, -0.05],
 ];
 
-function buildArtistProfile(artistName: string, tags: string[]): ArtistProfile {
+function buildArtistProfile(
+  artistName: string,
+  tags: string[],
+  features?: ArtistAudioFeatures | null,
+): ArtistProfile {
   const nameRng = seededRng(`profile|${artistName.toLowerCase()}`);
 
+  // Step 1: tag-based deltas
   let d = 0, ag = 0, sp = 0, wa = 0, ry = 0, matches = 0;
   for (const [term, td, ta, ts, tw, tr] of TAG_WEIGHTS) {
     if (tags.some(t => t.includes(term) || term.includes(t))) {
@@ -272,23 +279,46 @@ function buildArtistProfile(artistName: string, tags: string[]): ArtistProfile {
       matches++;
     }
   }
-
-  // tanh keeps the profile decisive even with few strong tags.
-  // Scale 1.5 maps one strong genre match (Δ≈0.6) to ~0.74 on the axis,
-  // and three agreeing tags to ~0.90 — clearly separated from other artists.
   const noiseAmt = matches > 6 ? 0.03 : matches > 2 ? 0.06 : matches > 0 ? 0.10 : 0.0;
-  const toAxis = (delta: number): number => {
+  const tagAxis = (delta: number): number => {
     if (matches === 0) return nameRng();
     return clamp01(0.5 + Math.tanh(delta / 1.5) * 0.5 + (nameRng() - 0.5) * noiseAmt);
   };
-
-  return {
-    darkness:     toAxis(d),
-    aggression:   toAxis(ag),
-    spaciousness: toAxis(sp),
-    warmth:       toAxis(wa),
-    rhythmic:     toAxis(ry),
+  const tagProfile: ArtistProfile = {
+    darkness:     tagAxis(d),
+    aggression:   tagAxis(ag),
+    spaciousness: tagAxis(sp),
+    warmth:       tagAxis(wa),
+    rhythmic:     tagAxis(ry),
   };
+
+  // Step 2: blend with real Spotify audio features when available.
+  // These are measured from the artist's actual tracks — far more accurate than tag guesses.
+  if (features && features.trackCount > 0) {
+    const f = features;
+    const tempoNorm = Math.max(0, Math.min(1, (f.tempo - 55) / 155)); // 55–210 BPM → 0–1
+
+    // Map each Spotify dimension to our axes
+    const featDarkness     = clamp01(1 - f.valence * 0.65 - f.mode * 0.15 + (1 - f.energy) * 0.10);
+    const featAggression   = clamp01(f.energy * 0.55 + f.loudnessNorm * 0.35 + (1 - f.acousticness) * 0.10);
+    const featSpacious     = clamp01((1 - f.acousticness) * 0.45 + f.instrumentalness * 0.35 + 0.10);
+    const featWarmth       = clamp01(f.acousticness * 0.50 + f.mode * 0.20 + f.valence * 0.15 + (1 - f.energy) * 0.10);
+    const featRhythmic     = clamp01(f.danceability * 0.55 + tempoNorm * 0.35 + (1 - f.speechiness) * 0.05);
+
+    // Real audio data outweighs tag guesses — weight features at 65–75 %
+    const fw  = Math.min(0.75, 0.55 + (f.trackCount / 10) * 0.20);
+    const tw2 = 1 - fw;
+
+    return {
+      darkness:     clamp01(tagProfile.darkness     * tw2 + featDarkness   * fw),
+      aggression:   clamp01(tagProfile.aggression   * tw2 + featAggression * fw),
+      spaciousness: clamp01(tagProfile.spaciousness * tw2 + featSpacious   * fw),
+      warmth:       clamp01(tagProfile.warmth       * tw2 + featWarmth     * fw),
+      rhythmic:     clamp01(tagProfile.rhythmic     * tw2 + featRhythmic   * fw),
+    };
+  }
+
+  return tagProfile;
 }
 
 // ─── Artist-driven sound architecture ────────────────────────────────────────
@@ -573,9 +603,13 @@ function generateParams(
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
-export function generateSounds(artistName: string, artistTags: string[]): GeneratedSound[] {
+export function generateSounds(
+  artistName: string,
+  artistTags: string[],
+  audioFeatures?: ArtistAudioFeatures | null,
+): GeneratedSound[] {
   const tags = artistTags.map(t => t.toLowerCase());
-  const profile = buildArtistProfile(artistName, tags);
+  const profile = buildArtistProfile(artistName, tags, audioFeatures);
 
   // Score each sound type by how many affinity tags the artist has
   const typeScores = (Object.entries(TYPE_AFFINITY) as [SoundType, string[]][]).map(([type, affinityTags]) => {
