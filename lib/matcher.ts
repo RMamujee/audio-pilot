@@ -20,6 +20,10 @@ function normalizeArtist(input: string): string {
   return ARTIST_ALIASES[lower] ?? lower;
 }
 
+function artistMatches(presetArtist: string, query: string): boolean {
+  return presetArtist.includes(query) || query.includes(presetArtist);
+}
+
 function cosineSim(a: Map<string, number>, b: Map<string, number>): number {
   let dot = 0, normA = 0, normB = 0;
   for (const [term, wA] of a) {
@@ -42,31 +46,37 @@ function buildTagVector(tags: string[]): Map<string, number> {
   return vec;
 }
 
+// Returns ALL presets that explicitly list the artist — no cosine bleed from
+// other artists' sounds. Used for artist-only searches so every returned sound
+// is genuinely that artist's work.
+export function getAllArtistPresets(artist: string): MatchResult[] {
+  if (!artist.trim()) return [];
+  const normalized = normalizeArtist(artist);
+  return PRESETS
+    .filter(p => p.artists.some(a => artistMatches(a, normalized)))
+    .map(p => ({
+      preset: p,
+      score: 1.0,
+      matchedArtist: true,
+      matchedTags: p.tags,
+    }));
+}
+
+// Used when a text prompt is provided (with or without artist).
+// Scores ALL presets by cosine similarity + artist bonus, returns top K.
 export function matchPresets(prompt: string, artist: string, topK = 4): MatchResult[] {
   const normalizedArtist = artist.trim() ? normalizeArtist(artist) : "";
   const promptTokens = tokenize(prompt);
-
-  // When only artist is given, derive query from that artist's preset tags
-  // so stylistically similar sounds are also surfaced
-  let queryVec: Map<string, number>;
-  if (!prompt.trim() && normalizedArtist) {
-    const artistPresets = PRESETS.filter(p =>
-      p.artists.some(a => a.includes(normalizedArtist) || normalizedArtist.includes(a))
-    );
-    const derivedTags = artistPresets.flatMap(p => p.tags);
-    queryVec = buildTagVector(derivedTags.length > 0 ? derivedTags : [normalizedArtist]);
-  } else {
-    queryVec = buildTagVector(promptTokens);
-  }
+  const queryVec = buildTagVector(promptTokens);
 
   const results: MatchResult[] = PRESETS.map((preset) => {
     const presetVec = buildTagVector(preset.tags);
     let score = cosineSim(queryVec, presetVec);
 
-    const artistMatch =
+    const isArtistMatch =
       normalizedArtist !== "" &&
-      preset.artists.some(a => a.includes(normalizedArtist) || normalizedArtist.includes(a));
-    if (artistMatch) score += 0.6;
+      preset.artists.some(a => artistMatches(a, normalizedArtist));
+    if (isArtistMatch) score += 0.6;
 
     const matchedTags: string[] = [];
     for (const tag of preset.tags) {
@@ -76,7 +86,7 @@ export function matchPresets(prompt: string, artist: string, topK = 4): MatchRes
       }
     }
 
-    return { preset, score, matchedArtist: artistMatch, matchedTags };
+    return { preset, score, matchedArtist: isArtistMatch, matchedTags };
   });
 
   return results

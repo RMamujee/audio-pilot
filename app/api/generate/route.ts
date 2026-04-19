@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { matchPresets } from "@/lib/matcher";
+import { matchPresets, getAllArtistPresets } from "@/lib/matcher";
 import { fetchArtistTags, fetchArtistAudioFeatures } from "@/lib/tag-fetcher";
 import { generateSounds } from "@/lib/sound-generator";
 
@@ -76,17 +76,26 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Path B: Local pipeline ───────────────────────────────────────────────
+    // ── Path B: Local pipeline ────────────────────────────────────────────────
     // 1. Fetch artist tags (skip if manual tags provided)
-    const [{ tags: fetchedTags, sources }, audioFeatures, presetMatches] = await Promise.all([
+    const [{ tags: fetchedTags, sources }, audioFeatures] = await Promise.all([
       (artist && manualTags.length === 0) ? fetchArtistTags(artist) : Promise.resolve({ tags: [] as string[], sources: [] as string[] }),
       (artist && manualTags.length === 0) ? fetchArtistAudioFeatures(artist) : Promise.resolve(null),
-      Promise.resolve(matchPresets(prompt, artist, 50)),
     ]);
 
     const tags = manualTags.length > 0 ? manualTags : fetchedTags;
 
-    // 2. Map preset matches to response shape
+    // 2. Resolve preset matches:
+    //    - Artist-only search → return ALL presets that explicitly list this artist
+    //      (strict filter, no cosine bleed from other artists' sounds)
+    //    - Prompt search → cosine similarity across all presets, artist bonus applied
+    let presetMatches;
+    if (artist && !prompt.trim()) {
+      presetMatches = getAllArtistPresets(artist);
+    } else {
+      presetMatches = matchPresets(prompt, artist, 50);
+    }
+
     const presetResults = presetMatches.map(r => ({
       name:          r.preset.name,
       description:   r.preset.description,
@@ -100,10 +109,12 @@ export async function POST(req: NextRequest) {
       tags:          r.preset.tags,
     }));
 
-    // 3. Generate sounds from tags
+    // 3. Generate sounds — always seeded uniquely to this artist, so the same
+    //    genre tags produce different sounds for different artists.
     const generatedResults = generateSounds(artist || prompt, tags, audioFeatures);
 
-    // 4. Merge: curated presets first, then generated (no name dupes)
+    // 4. Merge: curated presets first, then artist-seeded generated sounds.
+    //    Deduplicate by name so curated presets always win.
     const seen = new Set(presetResults.map(r => r.name));
     const merged = [
       ...presetResults,
