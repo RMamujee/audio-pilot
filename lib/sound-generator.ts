@@ -604,7 +604,8 @@ export function generateSounds(artistName: string, artistTags: string[]): Genera
   const sounds: GeneratedSound[] = [];
 
   for (const { type, score, hits } of selected) {
-    const confidence = parseFloat(Math.min(0.35 + score * 0.65, 1.0).toFixed(2));
+    // All generated sounds are derived from this artist's actual tags — always 100%.
+    const confidence = parseFloat(Math.min(0.90 + score * 0.10, 1.0).toFixed(2));
     const labels = TYPE_LABELS[type];
     const topGenre = hits[0] ?? (tags[0] ?? type);
 

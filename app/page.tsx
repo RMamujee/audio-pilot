@@ -1229,7 +1229,7 @@ export default function Home() {
         input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent2); cursor: pointer; }
       `}</style>
 
-      <div style={{ maxWidth: 1280, margin: "0 auto", padding: isMobile ? "0 12px 60px" : "0 16px 80px" }}>
+      <div style={{ width: "100%", padding: isMobile ? "0 12px 60px" : "0 32px 80px" }}>
 
         {/* Header */}
         <header style={{ padding: isMobile ? "32px 0 24px" : "48px 0 36px", textAlign: "center" }}>
@@ -1343,7 +1343,7 @@ export default function Home() {
               )}
             </div>
             {showFavorites && (
-              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill,minmax(360px,1fr))", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill,minmax(320px,1fr))", gap: 12 }}>
                 {favorites.map((r, i) => (
                   <SoundCard key={`fav-${r.name}-${i}`} result={r} index={i}
                     isPlaying={playingId === r.name}
@@ -1479,7 +1479,7 @@ export default function Home() {
                 </div>
 
                 {/* Stat range filters — always visible */}
-                <div style={{ paddingTop: 12, borderTop: "1px solid var(--border)", display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fill,minmax(220px,1fr))", gap: isMobile ? "0 16px" : "0 28px" }}>
+                <div style={{ paddingTop: 12, borderTop: "1px solid var(--border)", display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fill,minmax(200px,1fr))", gap: isMobile ? "0 16px" : "0 28px" }}>
                   <RangeSlider label="Cutoff (Hz)"  min={20}   max={20000} step={100}  value={statFilters.cutoff}    onChange={v => { setStatFilters(f => ({...f, cutoff: v}));    setVisibleCount(100); }} format={v => v >= 1000 ? `${(v/1000).toFixed(1)}k` : `${v}`} />
                   <RangeSlider label="Drive"        min={0}    max={1}     step={0.01} value={statFilters.drive}     onChange={v => { setStatFilters(f => ({...f, drive: v}));     setVisibleCount(100); }} format={v => v.toFixed(2)} />
                   <RangeSlider label="Reverb"       min={0}    max={1}     step={0.01} value={statFilters.reverbWet} onChange={v => { setStatFilters(f => ({...f, reverbWet: v})); setVisibleCount(100); }} format={v => v.toFixed(2)} />
@@ -1490,7 +1490,7 @@ export default function Home() {
               </div>
 
               {/* Sound grid */}
-              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill,minmax(360px,1fr))", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill,minmax(320px,1fr))", gap: 12 }}>
                 {filteredResults.slice(0, visibleCount).map((r, i) => (
                   <SoundCard
                     key={`${r.name}-${i}`} result={r} index={i}
